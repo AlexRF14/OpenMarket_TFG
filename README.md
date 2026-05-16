@@ -1,6 +1,6 @@
 # OpenMarket — Monorepo
 
-Frontend + Backend de **OpenMarket**, plataforma de operaciones (B2B/B2C) del TFG. Implementa autenticación (JWT + refresh cookie), gestión de empresas con Stripe Connect KYB, marketplace de operaciones (Operaciones) con búsqueda y filtros, chat en tiempo real (Firestore), y pagos split via Stripe Checkout.
+Frontend + Backend de **OpenMarket**, plataforma de marketplace digital (B2B/B2C/C2C) del TFG. Implementa autenticación (JWT + refresh cookie), gestión de empresas con Stripe Connect KYB, marketplace de operaciones con búsqueda y filtros, carrito de compra, chat en tiempo real (Firestore), pagos split via Stripe Checkout y notificaciones por email.
 
 ## Stack
 
@@ -9,6 +9,7 @@ Frontend + Backend de **OpenMarket**, plataforma de operaciones (B2B/B2C) del TF
 - **Frontend:** Vite 5 + React 18 + React Router v6 + TypeScript + Tailwind CSS 3
 - **Cloud:** Firebase (Firestore chat) + Google Cloud
 - **Pagos:** Stripe Connect Express (split) + Stripe Checkout
+- **Email:** Nodemailer (Gmail SMTP)
 - **Fuentes:** Fraunces (display) + Inter (UI)
 
 ## Cómo correrlo en local
@@ -39,6 +40,13 @@ pnpm --filter openmarket-web dev
 
 Abre http://localhost:3000
 
+Para recibir webhooks de Stripe en local:
+
+```bash
+stripe listen --forward-to localhost:3001/webhook
+# copia el whsec_... y ponlo en STRIPE_WEBHOOK_SECRET del .env
+```
+
 ### Build y producción
 
 ```bash
@@ -46,165 +54,219 @@ pnpm build        # build all workspaces (api + web)
 pnpm --filter openmarket-web preview   # preview build localmente
 ```
 
+## Variables de entorno clave (.env)
+
+```env
+# PostgreSQL
+DB_HOST / DB_PORT / DB_USER / DB_PASSWORD / DB_NAME
+
+# JWT
+JWT_SECRET / JWT_REFRESH_SECRET
+
+# Stripe Connect
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_PUBLIC_KEY=pk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+
+# Firebase (Admin SDK)
+FIREBASE_SERVICE_ACCOUNT_PATH=secrets/firebase-service-account.json
+
+# App
+FRONTEND_URL=http://localhost:3000
+
+# SMTP — opcional, deshabilita emails si se omite
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=openmarket.tfg@gmail.com
+SMTP_PASS=<app-password-16-chars>
+SMTP_FROM=OpenMarket <openmarket.tfg@gmail.com>
+```
+
+Ver `.env.example` para la lista completa.
+
 ## Estructura — Frontend (apps/web/)
 
 ```
-apps/web/
-├─ vite.config.ts
-├─ index.html
-├─ tsconfig.json
-├─ tailwind.config.js
-├─ package.json
-└─ src/
-   ├─ main.tsx                 # bootstrap + BrowserRouter
-   ├─ App.tsx                  # <Routes> + <ProtectedRoute> guard
-   ├─ index.css                # Tailwind + estilos base
-   ├─ lib/
-   │  ├─ api-client.ts         # fetch wrapper (auto-401 refresh, credentials: include)
-   │  ├─ api-types.ts          # enums + DTOs (OperationType, OperacionDto, …)
-   │  ├─ {auth,operaciones,settings}-api.ts  # domain-specific API calls
-   │  └─ firebase.ts           # Firebase Firestore init
-   ├─ state/
-   │  ├─ auth.tsx              # useAuth() context (login, register, MFA, Google)
-   │  └─ ops.tsx               # useOperacion(id) hook para detail + changeStatus
-   ├─ hooks/
-   │  ├─ useChat(chatId)       # Firestore messages + send
-   │  └─ useChats(userId)      # list chats por participante
-   ├─ components/
-   │  ├─ ui/
-   │  ├─ layout/
-   │  │  ├─ AppLayout.tsx      # sidebar + topbar + main
-   │  │  └─ ProtectedRoute.tsx # redirect a /login si no auth
-   │  ├─ forms/
-   │  └─ chat/
-   └─ pages/
-      ├─ auth/
-      │  ├─ LoginLanding.tsx
-      │  ├─ LoginTipo.tsx
-      │  ├─ LoginCredenciales.tsx
-      │  ├─ Verificacion.tsx
-      │  ├─ RegistroUsuario.tsx
-      │  ├─ RegistroEmpresa.tsx
-      │  └─ RegistroEmpresaStripe.tsx  # KYB via Stripe Account Link
-      └─ app/
-         ├─ Home.tsx           # grid de operaciones públicas + latest
-         ├─ Explorador.tsx     # search + filter (status, categoria)
-         ├─ Operaciones.tsx    # list mis operaciones (comprando/vendiendo)
-         ├─ OperacionNueva.tsx # form crear operación
-         ├─ OperacionDetalle.tsx  # view + chat + buy/confirm/ship
-         ├─ Chats.tsx
-         ├─ Ajustes.tsx
-         └─ …
+apps/web/src/
+├─ main.tsx                 # bootstrap + BrowserRouter
+├─ App.tsx                  # <Routes> + <ProtectedRoute> + <CartProvider>
+├─ index.css                # Tailwind + accessibility classes (reduce-motion, high-contrast, large-text)
+├─ lib/
+│  ├─ api-client.ts         # fetch wrapper (auto-401 refresh, credentials: include)
+│  ├─ api-types.ts          # tipos, enums, PRODUCTO_CATS/SERVICIO_CATS, categoriaLabel()
+│  ├─ {auth,operaciones,settings}-api.ts  # domain-specific API calls
+│  └─ firebase.ts           # Firebase Firestore init
+├─ state/
+│  ├─ auth.tsx              # useAuth() — login, register, MFA, Google
+│  ├─ ops.tsx               # useOperacion(id) — detail + changeStatus
+│  └─ cart.tsx              # useCart() — localStorage cart por userId (om.cart.<userId>)
+├─ hooks/
+│  ├─ useChat.ts            # Firestore messages + send
+│  └─ useChats.ts           # list chats por participante
+├─ components/
+│  ├─ layout/
+│  │  ├─ AppLayout.tsx      # sidebar + topbar (con badge carrito) + main
+│  │  └─ ProtectedRoute.tsx
+│  └─ …
+└─ pages/
+   ├─ auth/
+   │  ├─ LoginLanding.tsx / LoginTipo.tsx / LoginCredenciales.tsx / Verificacion.tsx
+   │  ├─ RegistroUsuario.tsx / RegistroEmpresa.tsx
+   │  └─ RegistroEmpresaStripe.tsx  # KYB via Stripe Account Link
+   └─ app/
+      ├─ Home.tsx           # grid de últimas ops públicas + filtros (tipo/categoría/precio)
+      ├─ Explorador.tsx     # tabla de ops con búsqueda + filtros + paginación
+      ├─ Operaciones.tsx    # mis operaciones (comprando/vendiendo/borrador)
+      ├─ OperacionNueva.tsx # crear op: selector tipo→subcategoría, precio con IVA
+      ├─ OperacionDetalle.tsx  # detalle + chat + comprar + panel inventario vendedor
+      ├─ Carrito.tsx        # carrito con checkboxes, qty stepper, pago individual/secuencial
+      ├─ Chats.tsx
+      └─ Ajustes.tsx        # settings (email/push/privacy/accessibility + change-email/password)
 ```
 
 ## Estructura — Backend (apps/api/)
 
 ```
-apps/api/
-├─ src/
-│  ├─ main.ts                 # bootstrap NestJS, setGlobalPrefix('api/v1')
-│  ├─ app.module.ts           # root module
-│  ├─ auth/                   # JWT, login, register, refresh
-│  ├─ users/                  # User entity + service
-│  ├─ empresas/               # Empresa entity + Stripe Connect onboarding
-│  ├─ operaciones/            # Operacion entity + CRUD + findPublic (search)
-│  ├─ payments/               # Stripe integration
-│  │  ├─ stripe.service.ts    # thin Stripe SDK wrapper
-│  │  ├─ payments.service.ts  # createCheckoutSession, buyOperacion, handleEvent
-│  │  ├─ webhook.controller.ts  # POST /webhook
-│  │  └─ payments.controller.ts # POST /operacion/:id/checkout
-│  ├─ chat/                   # Firestore chat room creation
-│  ├─ common/
-│  │  ├─ guards/              # JwtAuthGuard
-│  │  ├─ decorators/          # @CurrentUser()
-│  │  └─ filters/             # exception handling
-│  ├─ config/
-│  │  └─ env.validation.ts    # Joi schema (check new vars here)
-│  └─ database/
-│     ├─ migrations/
-│     ├─ data-source.ts
-│     └─ seed.ts
-└─ package.json
+apps/api/src/
+├─ main.ts                 # bootstrap NestJS, setGlobalPrefix('api/v1')
+├─ app.module.ts           # root module
+├─ auth/                   # JWT, login, register, refresh, change-email, change-password
+├─ usuarios/               # Usuario entity + service
+├─ empresas/               # Empresa entity + Stripe Connect onboarding
+├─ operaciones/            # Operacion entity + CRUD + findPublic
+├─ payments/               # Stripe integration
+│  ├─ stripe.service.ts    # thin Stripe SDK wrapper (quantity support)
+│  ├─ payments.service.ts  # createCheckoutSession, buyOperacion(qty), handleEvent
+│  ├─ webhook.controller.ts  # POST /webhook (rawBody)
+│  └─ payments.controller.ts # POST /operacion/:id/checkout { quantity? }
+├─ notifications/          # Nodemailer email notifications
+│  ├─ notifications.service.ts  # send(), notifyPurchaseCompleted(), notifyStatusChanged()
+│  └─ notifications.module.ts
+├─ chat/                   # Firestore chat room creation
+├─ settings/               # UserSettings JSONB CRUD
+├─ common/
+│  ├─ guards/              # JwtAuthGuard
+│  ├─ decorators/          # @CurrentUser()
+│  └─ filters/
+├─ config/
+│  └─ env.validation.ts    # Joi schema — añadir vars nuevas aquí
+└─ database/
+   ├─ migrations/
+   ├─ data-source.ts
+   └─ seed.ts
 ```
 
 ## Rutas — Auth (pre-login)
 
 | Ruta | Descripción |
 |---|---|
-| `/login` | Landing: email input → modo o crear |
+| `/login` | Landing: email input |
 | `/login/tipo?mode=login\|signup` | Cliente vs Empresa |
 | `/login/credenciales` | Email + contraseña; Google SSO |
 | `/login/verificacion` | Código 6-dígito OTP |
-| `/registro/usuario` | Form cliente (username, birthdate, password) |
+| `/registro/usuario` | Form cliente |
 | `/registro/empresa` | Form empresa (razón social, NIF, sector) |
-| `/registro/empresa/stripe` | Stripe Account Link (KYB); redirige a `completado` tras Stripe |
-| `/registro/completado` | Confirmación |
+| `/registro/empresa/stripe` | Stripe Account Link (KYB) |
 
 ## Rutas — App (post-login)
 
-Layout: sidebar colapsable (izq), topbar con search (arriba), main content.
-
 | Ruta | Descripción |
 |---|---|
-| `/app` | Home: grid de últimas operaciones públicas |
-| `/app/explorador?q=X&status=Y` | Búsqueda + filtros (status, categoria) |
-| `/app/operaciones?side=comprando\|vendiendo` | Mis operaciones (comprando/vendiendo) |
-| `/app/operaciones/nueva` | Crear operación: tipo (publica/negociada), titulo, categoria, cantidad, precio, IVA |
-| `/app/operaciones/:id` | Detail: info, chat, comprar (si público), confirmar/marcar entregada (si participante) |
+| `/app` | Home: grid ops públicas + filtros |
+| `/app/explorador` | Tabla de mercado + búsqueda + filtros |
+| `/app/operaciones` | Mis operaciones |
+| `/app/operaciones/nueva` | Crear operación |
+| `/app/operaciones/:id` | Detalle: chat + comprar + estado |
 | `/app/operaciones/:id?checkout=success\|cancelled` | Banners post-Stripe |
-| `/app/chats` | Chat list (participantes) + conversación split |
-| `/app/ajustes` | Perfil, notificaciones, privacidad, zona crítica (RGPD) |
+| `/app/carrito` | Carrito de compra |
+| `/app/chats` | Chat list + conversación |
+| `/app/ajustes` | Settings (email, accesibilidad, cambiar contraseña/email) |
 
-**Operaciones:** tipo `publica` (visible a todos) vs `negociada` (link compartible); campos `titulo`, `categoria` (producto/servicio), `cantidad`, `stock`; creador es vendedor; cualquier usuario autenticado puede ver detalles.
+## Flujo de estados de una Operación
+
+```
+pending (borrador, solo visible al vendedor)
+    → confirmed  (publicada, visible en Explorador/Home, comprable)
+         → shipped   (sin stock, oculta en Explorador, visible a participantes)
+              → completed (entregada, marcada por vendedor/comprador)
+    → cancelled  (cancelada, solo visible al creador)
+```
+
+- **pending**: el vendedor puede publicar (→ confirmed) o cancelar.
+- **confirmed**: cualquier usuario autenticado puede comprar. Stock decrementa por qty.
+- **shipped**: stock = 0. Oculta en mercado público. Sigue en Operaciones de participantes.
+- **completed**: final. El vendedor marca tras entregar.
+- Al cambiar estado vía `PATCH /operaciones/:id/status`, `NotificationsService` envía email a la otra parte (si tiene notificaciones email activadas en Ajustes).
+
+## Categorías de operaciones
+
+Dos grupos de subcategorías. Se almacenan como `varchar(50)` en DB (no enum):
+
+| Productos | Servicios |
+|---|---|
+| electronica, hogar_jardin, moda_accesorios | consultoria, desarrollo_software, diseno_grafico |
+| alimentacion, deportes_ocio, vehiculos, otro_producto | marketing, educacion, salud, logistica, mantenimiento, otro_servicio |
+
+> Si se añaden categorías: actualizar `PRODUCTO_CATS`/`SERVICIO_CATS` en `api-types.ts`, el `@IsIn` del DTO backend, y el CHECK constraint en PostgreSQL.
+
+## Carrito (frontend-only)
+
+- Estado en `localStorage` bajo `om.cart.<userId>`. No hay tabla en DB.
+- `CartProvider` en `App.tsx` — `useCart()` en cualquier componente.
+- Checkout siempre es por operación individual (una Stripe Session por item).
+- El carrito solo elimina un item cuando el usuario pulsa **Actualizar** en el banner `?checkout=success`. Cancelar Stripe → item permanece en carrito.
+
+## Notificaciones email
+
+- Backend: `NotificationsService` (nodemailer). Si SMTP no está configurado → silencioso.
+- **Compra completada** → email al comprador + email al vendedor.
+- **Cambio de estado** → email a la otra parte (no al que inicia el cambio).
+- El toggle **"Email"** en Ajustes → Notificaciones activa/desactiva estos emails por usuario.
+- Notificaciones de mensajes de chat **no implementadas** (requeriría Firebase Cloud Functions).
 
 ## Arquitectura — Flujos clave
 
 ### Auth
-- `POST /api/v1/auth/register` (email, username, password, rol) → JWT access + refresh cookie
+- `POST /api/v1/auth/register` → JWT access + refresh cookie
 - `POST /api/v1/auth/login` → access + cookie
-- `POST /api/v1/auth/refresh` → new access token (auto-called on 401)
-- Google SSO: Firebase `signInWithPopup` → verifify token → `/api/v1/auth/google`
+- `POST /api/v1/auth/refresh` → nuevo access token (auto en 401)
+- `POST /api/v1/auth/change-password` | `PATCH /api/v1/auth/change-email` → con contraseña actual
 
 ### Empresas + Stripe Connect
-- `POST /api/v1/empresas` (razón social, NIF, sector) → crea Empresa (1 por user)
-- `POST /api/v1/payments/connect/onboarding` → crea Stripe Express Account + Account Link
-- Redirect a Stripe → user completa KYB → Stripe redirige a `/registro/completado`
-- Webhook `account.updated` → actualiza `empresa.verifiedStatus` (VERIFIED/PENDING/REJECTED)
+- `POST /api/v1/empresas` → crea Empresa (1 por user, 409 si ya existe)
+- `POST /api/v1/payments/connect/onboarding` → Stripe Express Account + Account Link
+- Webhook `account.updated` → actualiza `verifiedStatus` (VERIFIED/PENDING/REJECTED)
 
 ### Operaciones + Marketplace
-- `POST /api/v1/operaciones` (titulo, categoria, operationType, cantidad, …) → crea op; creator=vendedor
-- `GET /api/v1/operaciones/mias?side=comprando|vendiendo` → mis ops
-- `GET /api/v1/operaciones/explorador?q=X` → public ops (búsqueda en titulo + notes)
-- `GET /api/v1/operaciones/:id` → detail (ANY auth user, no 403)
-- `PATCH /api/v1/operaciones/:id/status` → confirmar/cancelar/marcar completada (solo participantes)
+- `POST /api/v1/operaciones` → crea op (estado `pending`; creator = vendedor)
+- `GET /api/v1/operaciones/explorador?q=X` → ops públicas `status=confirmed` únicamente
+- `GET /api/v1/operaciones/:id` → visible a cualquier usuario autenticado
+- `PATCH /api/v1/operaciones/:id/status` → solo participantes; dispara email notificación
 
 ### Checkout + Pagos
-- `POST /api/v1/payments/operacion/:id/checkout` (currentUser) → crea Stripe Checkout Session
-  - Si seller tiene Stripe Account → split payment (transfer_data + application_fee_amount)
-  - Si no → direct checkout a plataforma
-- Stripe Checkout → pago → redirige a `/app/operaciones/:id?checkout=success|cancelled`
-- Webhook `checkout.session.completed` → decrementa stock, confirma operación, registra `idComprador`
+- `POST /api/v1/payments/operacion/:id/checkout` body `{ quantity?: number }`
+  - Seller con Stripe Account → split payment
+  - Sin Stripe Account → direct checkout a plataforma
+- Webhook `checkout.session.completed` → decrementa stock × qty, registra `idComprador`, mueve a `shipped` si `stock === 0`
 
 ### Chat (Firestore)
-- `useChat(chatId)` → suscribe a `/chats/:chatId/messages/*`, autenticado via Firebase rules
-- `useChats(userId)` → list `/chats/*` por `participants: [userId]`
-- Chat room auto-creado por backend al crear operación (TODO)
+- `useChat(chatId)` → suscribe a `/chats/:chatId/messages/*`
+- `useChats(userId)` → lista `/chats/*` por `participants`
+- Chat room: backend crea la sala en Firestore; frontend escribe mensajes directamente
 
-## Desarrollo local — paso a paso
+## Desarrollo local — Stripe test
 
-1. **Variables de entorno** (.env en raíz): Stripe keys, DB credentials, Firebase config, JWT secret
-2. **DB:** `docker compose up -d` (o instala Postgres 16 manual)
-3. **Migraciones:** `pnpm db:migrate` + `pnpm db:seed`
-4. **Dev servers:** `pnpm dev` (abre http://localhost:3000)
-5. **Webhooks:** `stripe listen --forward-to localhost:3001/webhook` (en otra terminal)
-6. **Test:** Stripe test card `4242 4242 4242 4242` + any future exp/CVC
+```bash
+stripe listen --forward-to localhost:3001/webhook
+# Test card: 4242 4242 4242 4242 | any future date | any CVC
+```
 
-## Próximos pasos sugeridos
+## Próximos pasos
 
-- [ ] Chat room auto-creation en `POST /operaciones`
-- [ ] Email notifications (operación confirmada, envío, etc.)
-- [ ] Reseñas / ratings (post-operación)
+- [ ] Chat room auto-creation en `POST /operaciones` (actualmente es un TODO)
+- [ ] Pago de múltiples items del carrito en una sola sesión (requiere backend multi-item)
+- [ ] Reseñas / ratings post-operación
 - [ ] Reportes / bloqueos (chat + operaciones)
 - [ ] Rate limiting en endpoints sensibles (pagos, login)
-- [ ] Swagger UI en `/api/docs` → documentar endpoints nuevos
-- [ ] Tests: auth flow, checkout session, webhook `checkout.session.completed`, operación status transitions
+- [ ] Tests: auth flow, checkout session, webhook `checkout.session.completed`, transiciones de estado
+- [ ] Notificaciones push / mensajes de chat (Firebase Cloud Functions)
