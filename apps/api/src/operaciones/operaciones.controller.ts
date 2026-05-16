@@ -8,6 +8,7 @@ import { CreateOperacionDto } from './dto/create-operacion.dto';
 import { UpdateOperacionStatusDto } from './dto/update-operacion-status.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
+import { NotificationsService } from '../notifications/notifications.service';
 
 /**
  * Endpoints REST para operaciones.
@@ -20,7 +21,10 @@ import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-us
 @UseGuards(JwtAuthGuard)
 @Controller('operaciones')
 export class OperacionesController {
-  constructor(private readonly service: OperacionesService) {}
+  constructor(
+    private readonly service: OperacionesService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   @Get('explorador')
   @ApiOperation({ summary: 'Explorador de mercado: operaciones de tipo PUBLICA' })
@@ -94,6 +98,8 @@ export class OperacionesController {
     if (op.idComprador !== user.id && op.idVendedor !== user.id) {
       throw new ForbiddenException('No eres parte de esta operación');
     }
-    return this.service.save({ ...op, status: dto.status });
+    const updated = await this.service.save({ ...op, status: dto.status });
+    void this.notifications.notifyStatusChanged(updated, dto.status, user.id);
+    return updated;
   }
 }

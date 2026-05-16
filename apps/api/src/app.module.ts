@@ -10,6 +10,7 @@ import { EmpresasModule } from './empresas/empresas.module';
 import { ProductosModule } from './productos/productos.module';
 import { OperacionesModule } from './operaciones/operaciones.module';
 import { SettingsModule } from './settings/settings.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 // TODO: importar cuando se implementen:
 // import { VerificationModule } from './verification/verification.module';
@@ -45,6 +46,7 @@ import { SettingsModule } from './settings/settings.module';
     OperacionesModule,
     SettingsModule,
     PaymentsModule,
+    NotificationsModule,
     ChatModule,
 
     // TODO: VerificationModule (KYC via Stripe Connect Express requirements/account.updated),

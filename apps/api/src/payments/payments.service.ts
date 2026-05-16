@@ -6,6 +6,7 @@ import { StripeService } from './stripe.service';
 import { EmpresasService } from '../empresas/empresas.service';
 import { OperacionesService } from '../operaciones/operaciones.service';
 import { CreateCheckoutDto } from './dto/create-checkout.dto';
+import { NotificationsService } from '../notifications/notifications.service';
 
 /**
  * Orquesta Stripe Connect:
@@ -25,6 +26,7 @@ export class PaymentsService {
     private readonly stripe: StripeService,
     private readonly empresas: EmpresasService,
     private readonly operaciones: OperacionesService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   // ---------- Onboarding ----------
@@ -236,6 +238,9 @@ export class PaymentsService {
     // on expired/unpaid: keep confirmed so listing stays available
 
     await this.operaciones.save(op);
+    if (session.payment_status === 'paid') {
+      void this.notifications.notifyPurchaseCompleted(op);
+    }
   }
 
   private async applyAccountUpdate(account: Stripe.Account): Promise<void> {

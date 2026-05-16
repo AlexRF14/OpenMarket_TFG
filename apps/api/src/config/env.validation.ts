@@ -30,4 +30,11 @@ export const envValidationSchema = Joi.object({
 
   // App
   FRONTEND_URL: Joi.string().uri().default('http://localhost:3000'),
+
+  // SMTP — optional. If not set, email notifications are silently disabled.
+  SMTP_HOST: Joi.string().optional(),
+  SMTP_PORT: Joi.number().default(587),
+  SMTP_USER: Joi.string().optional(),
+  SMTP_PASS: Joi.string().optional(),
+  SMTP_FROM: Joi.string().optional(),
 });
