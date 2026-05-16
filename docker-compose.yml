@@ -1,0 +1,25 @@
+services:
+  db:
+    image: postgres:16
+    container_name: postgres_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  stripe:
+    image: stripe/stripe-cli
+    container_name: stripe_cli
+    command: "listen --api-key ${STRIPE_SECRET_KEY} --forward-to host.docker.internal:3001/webhook"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./.stripe:/root/.config/stripe
+    restart: always
+volumes:
+  postgres_data:

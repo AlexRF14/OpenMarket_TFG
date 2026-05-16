@@ -1,0 +1,49 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Chats: solo los participantes pueden leer/escribir
+    match /chats/{chatId} {
+      allow read: if request.auth != null
+                  && request.auth.uid in resource.data.participants;
+
+      // Crear chat: el solicitante debe ser uno de los participantes
+      allow create: if request.auth != null
+                    && request.auth.uid in request.resource.data.participants
+                    && request.resource.data.participants.size() == 2;
+
+      // Update solo para lastMessage y campos permitidos (no cambiar participantes)
+      allow update: if request.auth != null
+                    && request.auth.uid in resource.data.participants
+                    && !('participants' in request.resource.data.diff(resource.data).affectedKeys());
+
+      allow delete: if false;
+
+      // Mensajes: solo participantes del chat padre
+      match /messages/{messageId} {
+        allow read: if request.auth != null
+                    && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+
+        allow create: if request.auth != null
+                      && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
+                      && request.auth.uid == request.resource.data.senderId
+                      && request.resource.data.keys().hasAll(['senderId', 'text', 'createdAt', 'read'])
+                      && request.resource.data.text is string
+                      && request.resource.data.text.size() > 0
+                      && request.resource.data.text.size() <= 2000;
+
+        // Solo actualizar campo 'read'
+        allow update: if request.auth != null
+                      && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+
+        allow delete: if false;
+      }
+    }
+
+    // Denegar todo lo demás por defecto
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

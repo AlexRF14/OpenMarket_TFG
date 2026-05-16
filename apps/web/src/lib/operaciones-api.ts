@@ -1,0 +1,30 @@
+import { api } from './api-client';
+import type { CreateOperacionDto, OperacionDto, OperacionStatus } from './api-types';
+
+export type OperacionSide = 'comprando' | 'vendiendo';
+
+export function listMine(side?: OperacionSide): Promise<OperacionDto[]> {
+  const q = side ? `?side=${side}` : '';
+  return api.get<OperacionDto[]>(`/operaciones/mias${q}`);
+}
+
+export function getById(id: string): Promise<OperacionDto> {
+  return api.get<OperacionDto>(`/operaciones/${id}`);
+}
+
+export function create(payload: CreateOperacionDto): Promise<OperacionDto> {
+  return api.post<OperacionDto>('/operaciones', payload);
+}
+
+export function updateStatus(id: string, status: OperacionStatus): Promise<OperacionDto> {
+  return api.patch<OperacionDto>(`/operaciones/${id}/status`, { status });
+}
+
+export function listPublic(q?: string): Promise<OperacionDto[]> {
+  const qs = q ? `?q=${encodeURIComponent(q)}` : '';
+  return api.get<OperacionDto[]>(`/operaciones/explorador${qs}`);
+}
+
+export function initiateCheckout(id: string, quantity = 1): Promise<{ checkoutUrl: string; sessionId: string }> {
+  return api.post<{ checkoutUrl: string; sessionId: string }>(`/payments/operacion/${id}/checkout`, { quantity });
+}
