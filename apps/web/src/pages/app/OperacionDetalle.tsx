@@ -205,6 +205,14 @@ export default function OperacionDetalle() {
             <span>Visibilidad: <span className="text-ink/80">{typeLabel(op.operationType)}</span></span>
             <span className="capitalize">Posición: <span className="text-ink/80">{opSide}</span></span>
             <span>Creada: <span className="text-ink/80">{new Date(op.createdAt).toLocaleString('es')}</span></span>
+            {!isSeller && (
+              <span>
+                Vendedor:{' '}
+                <Link to={`/app/perfil/${op.idVendedor}`} className="text-terracotta-600 hover:underline font-medium">
+                  Ver perfil →
+                </Link>
+              </span>
+            )}
           </div>
 
           {op.operationType === 'negociada' && (

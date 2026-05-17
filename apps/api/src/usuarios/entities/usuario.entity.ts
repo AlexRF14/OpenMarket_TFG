@@ -31,6 +31,9 @@ export class Usuario {
   @Column({ name: 'firebase_uid', type: 'varchar', length: 128, unique: true, nullable: true, default: null })
   firebaseUid!: string | null;
 
+  @Column({ type: 'varchar', length: 500, nullable: true, default: null })
+  bio!: string | null;
+
   @Column({ type: 'jsonb', default: '{}' })
   settings!: Record<string, unknown>;
 

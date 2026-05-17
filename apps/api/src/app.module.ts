@@ -11,6 +11,7 @@ import { ProductosModule } from './productos/productos.module';
 import { OperacionesModule } from './operaciones/operaciones.module';
 import { SettingsModule } from './settings/settings.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { PerfilModule } from './perfil/perfil.module';
 
 // TODO: importar cuando se implementen:
 // import { VerificationModule } from './verification/verification.module';
@@ -47,6 +48,7 @@ import { NotificationsModule } from './notifications/notifications.module';
     SettingsModule,
     PaymentsModule,
     NotificationsModule,
+    PerfilModule,
     ChatModule,
 
     // TODO: VerificationModule (KYC via Stripe Connect Express requirements/account.updated),

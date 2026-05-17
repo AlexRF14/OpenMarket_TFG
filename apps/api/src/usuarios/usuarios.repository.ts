@@ -34,6 +34,33 @@ export class UsuariosRepository {
     return this.repo.findOne({ where: { correo } });
   }
 
+  /**
+   * Busca vendedores con perfil público que tengan al menos una operación pública confirmada.
+   * @param q Texto libre — busca por nombre, apellidos o bio (ILIKE).
+   */
+  searchVendedores(q?: string): Promise<Pick<Usuario, 'id' | 'nombre' | 'apellidos' | 'bio'>[]> {
+    const qb = this.repo
+      .createQueryBuilder('u')
+      .select(['u.id', 'u.nombre', 'u.apellidos', 'u.bio'])
+      .where('u.isActive = :active', { active: true })
+      .andWhere(`u.settings->'privacy'->'public_profile' = 'true'::jsonb`)
+      .andWhere(
+        `EXISTS (SELECT 1 FROM operaciones op WHERE op.id_vendedor = u.id AND op.status = 'confirmed' AND op.operation_type = 'publica')`,
+      )
+      .orderBy('u.nombre', 'ASC')
+      .limit(50);
+
+    if (q) {
+      const like = `%${q.toLowerCase()}%`;
+      qb.andWhere(
+        '(LOWER(u.nombre) LIKE :q OR LOWER(u.apellidos) LIKE :q OR LOWER(u.bio) LIKE :q)',
+        { q: like },
+      );
+    }
+
+    return qb.getMany() as Promise<Pick<Usuario, 'id' | 'nombre' | 'apellidos' | 'bio'>[]>;
+  }
+
   save(usuario: Partial<Usuario>): Promise<Usuario> {
     return this.repo.save(usuario as Usuario);
   }

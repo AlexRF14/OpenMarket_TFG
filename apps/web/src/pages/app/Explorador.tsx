@@ -5,6 +5,9 @@ import { STATUS_META } from '../../state/ops';
 import type { OperacionDto, OperacionStatus } from '../../lib/api-types';
 import { PRODUCTO_CATS, SERVICIO_CATS, ALL_PRODUCTO_VALUES, ALL_SERVICIO_VALUES, categoriaLabel } from '../../lib/api-types';
 import { ApiException } from '../../lib/api-client';
+import { VendedoresTab } from './VendedoresTab';
+
+type MainTab = 'operaciones' | 'vendedores';
 
 const STATUS_TABS: Array<{ key: OperacionStatus | 'todas'; label: string }> = [
   { key: 'todas', label: 'Todas' },
@@ -41,6 +44,7 @@ function formatDate(iso: string) {
 export default function Explorador() {
   const nav = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [mainTab, setMainTab] = useState<MainTab>('operaciones');
   const [ops, setOps] = useState<OperacionDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -98,6 +102,26 @@ export default function Explorador() {
           <span className="text-lg leading-none">+</span> Nueva operación
         </button>
       </div>
+
+      {/* Main tabs */}
+      <div className="inline-flex bg-white border border-ink/10 rounded-xl p-1 mb-6">
+        {([
+          { k: 'operaciones', label: 'Operaciones' },
+          { k: 'vendedores', label: 'Vendedores' },
+        ] as const).map((t) => (
+          <button
+            key={t.k}
+            onClick={() => setMainTab(t.k)}
+            className={`h-9 px-5 rounded-lg text-[13px] font-medium transition ${mainTab === t.k ? 'bg-ink text-cream' : 'text-ink/60 hover:text-ink'}`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {mainTab === 'vendedores' && <VendedoresTab />}
+
+      {mainTab === 'operaciones' && <>
 
       {/* Filter bar */}
       <div className="space-y-3 mb-6">
@@ -246,6 +270,8 @@ export default function Explorador() {
           </tbody>
         </table>
       </div>
+
+      </>}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { OperacionStatus } from '@marketplace/shared-types';
 import { Operacion } from './entities/operacion.entity';
 
 @Injectable()
@@ -37,6 +38,13 @@ export class OperacionesRepository {
       qb.andWhere('(LOWER(op.titulo) LIKE :q OR LOWER(op.notes) LIKE :q)', { q: like });
     }
     return qb.getMany();
+  }
+
+  findPublicByVendedor(idVendedor: string): Promise<Operacion[]> {
+    return this.repo.find({
+      where: { idVendedor, status: OperacionStatus.CONFIRMED, operationType: 'publica' },
+      order: { createdAt: 'DESC' },
+    });
   }
 
   save(operacion: Partial<Operacion>): Promise<Operacion> {

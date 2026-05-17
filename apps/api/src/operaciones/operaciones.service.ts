@@ -29,6 +29,10 @@ export class OperacionesService {
     return this.repository.findPublic(q);
   }
 
+  findPublicByVendedor(idVendedor: string): Promise<Operacion[]> {
+    return this.repository.findPublicByVendedor(idVendedor);
+  }
+
   async save(data: Partial<Operacion>): Promise<Operacion> {
     try {
       return await this.repository.save(data);

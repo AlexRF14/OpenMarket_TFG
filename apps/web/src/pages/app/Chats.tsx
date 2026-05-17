@@ -5,6 +5,7 @@ import { useChats, type ChatRoom } from '../../hooks/useChats';
 import { ChatPane } from './ChatPane';
 import { lookupUserByEmail, createChat, type UserLookup } from '../../lib/chat-api';
 import type { ProfileResponse } from '../../lib/api-types';
+import { useSearchParams } from 'react-router-dom';
 
 function formatTime(ts: Timestamp | null | undefined): string {
   if (!ts) return '';
@@ -195,9 +196,15 @@ function ChatList({
 export default function Chats() {
   const { profile } = useAuth();
   const { chats, loading, firebaseReady, error } = useChats(profile?.id ?? null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [selectedId, setSelectedId] = useState<string | null>(() => searchParams.get('chatId'));
   const [q, setQ] = useState('');
   const [newChatOpen, setNewChatOpen] = useState(false);
+
+  // Clean URL param once applied
+  useEffect(() => {
+    if (searchParams.get('chatId')) setSearchParams({}, { replace: true });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!selectedId && chats.length > 0) setSelectedId(chats[0].id);

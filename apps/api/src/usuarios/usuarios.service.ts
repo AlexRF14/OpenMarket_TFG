@@ -33,6 +33,21 @@ export class UsuariosService {
     return this.repository.findByEmailWithSecurity(correo);
   }
 
+  /** @returns Lista de vendedores con perfil público y al menos una op confirmada. */
+  searchVendedores(q?: string): Promise<Pick<Usuario, 'id' | 'nombre' | 'apellidos' | 'bio'>[]> {
+    return this.repository.searchVendedores(q);
+  }
+
+  /**
+   * Actualiza la bio del usuario.
+   * @param id UUID del usuario
+   * @param bio Texto de la bio (null para eliminar)
+   */
+  async updateBio(id: string, bio: string | null): Promise<Usuario> {
+    const user = await this.findById(id);
+    return this.repository.save({ ...user, bio });
+  }
+
   save(data: Partial<Usuario>): Promise<Usuario> {
     return this.repository.save(data);
   }

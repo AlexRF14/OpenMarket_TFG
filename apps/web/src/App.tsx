@@ -19,6 +19,7 @@ import Operaciones from './pages/app/Operaciones';
 import OperacionDetalle from './pages/app/OperacionDetalle';
 import OperacionNueva from './pages/app/OperacionNueva';
 import Explorador from './pages/app/Explorador';
+import Perfil from './pages/app/Perfil';
 import { AuthProvider } from './state/auth';
 import { CartProvider } from './state/cart';
 
@@ -49,6 +50,7 @@ export default function App() {
           <Route path="/app/operaciones" element={<Operaciones />} />
           <Route path="/app/operaciones/nueva" element={<OperacionNueva />} />
           <Route path="/app/operaciones/:id" element={<OperacionDetalle />} />
+          <Route path="/app/perfil/:id" element={<Perfil />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/login" replace />} />

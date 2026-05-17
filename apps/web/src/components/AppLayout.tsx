@@ -23,7 +23,7 @@ const Icons = {
 
 /* ─────────── SIDEBAR ─────────── */
 function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
-  const { account, name, logout } = useAuth();
+  const { account, name, logout, profile } = useAuth();
   const nav = useNavigate();
   const display = name || '—';
   const initial = (display[0] ?? '?').toUpperCase();
@@ -80,7 +80,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
       {/* Footer: account + collapse */}
       <div className="p-3 border-t border-ink/[.06] space-y-1.5">
         <button
-          onClick={() => nav('/app/ajustes')}
+          onClick={() => nav(profile?.id ? `/app/perfil/${profile.id}` : '/app/ajustes')}
           className="w-full flex items-center gap-3 h-11 px-2 rounded-lg hover:bg-ink/5 text-left"
           title={collapsed ? display : undefined}
         >
