@@ -74,6 +74,9 @@ export class Operacion {
   @Column({ type: 'text', nullable: true, default: null })
   notes!: string | null;
 
+  @Column({ type: 'text', array: true, nullable: true, default: null })
+  images!: string[] | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 

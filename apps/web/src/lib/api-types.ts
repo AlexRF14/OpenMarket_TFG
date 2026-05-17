@@ -147,6 +147,7 @@ export interface OperacionDto {
   stripePaymentStatus: string | null;
   chatRoomId: string | null;
   notes: string | null;
+  images: string[] | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -163,6 +164,7 @@ export interface CreateOperacionDto {
   taxAmount: string;
   platformFee: string;
   notes?: string | null;
+  images?: string[];
 }
 
 export interface ApiError {

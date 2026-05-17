@@ -1,4 +1,4 @@
-import { IsString, IsUUID, IsOptional, IsIn, IsInt, Min, Matches, MaxLength } from 'class-validator';
+import { IsString, IsUUID, IsOptional, IsIn, IsInt, Min, Matches, MaxLength, IsArray, ArrayMaxSize } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 const NUMERIC_2DEC = /^\d+(\.\d{1,2})?$/;
@@ -64,4 +64,11 @@ export class CreateOperacionDto {
   @IsString()
   @MaxLength(2000)
   notes?: string;
+
+  @ApiPropertyOptional({ description: 'URLs de imágenes en Firebase Storage (máx 10)', type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(10)
+  images?: string[];
 }

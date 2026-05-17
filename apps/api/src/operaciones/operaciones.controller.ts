@@ -83,6 +83,7 @@ export class OperacionesController {
       platformFee: dto.platformFee,
       currency: 'EUR',
       notes: dto.notes ?? null,
+      images: dto.images ?? null,
     });
   }
 

@@ -3,7 +3,7 @@ import { useOperacion, STATUS_META } from '../../state/ops';
 import { useAuth } from '../../state/auth';
 import { useCart } from '../../state/cart';
 import { useChat } from '../../hooks/useChat';
-import { useState, FormEvent, useCallback, useEffect } from 'react';
+import { useState, FormEvent, useCallback, useEffect, useRef } from 'react';
 import type { AnyOperationType, OperacionDto, OperacionStatus } from '../../lib/api-types';
 import { categoriaLabel } from '../../lib/api-types';
 import { initiateCheckout } from '../../lib/operaciones-api';
@@ -300,6 +300,19 @@ export default function OperacionDetalle() {
         </div>
       </div>
 
+      {/* Description */}
+      {op.notes && (
+        <div className="mb-5 rounded-2xl bg-white border border-ink/10 px-5 py-4">
+          <div className="text-[11.5px] uppercase tracking-wider text-ink/50 font-medium mb-2">Descripción</div>
+          <p className="text-[14px] text-ink/80 leading-relaxed whitespace-pre-wrap">{op.notes}</p>
+        </div>
+      )}
+
+      {/* Image gallery */}
+      {(op.images?.length ?? 0) > 0 && (
+        <ImageGallery images={op.images!} />
+      )}
+
       {(() => {
         const totalQuantity = op.cantidad ?? 1;
         const stockRemaining = op.stock ?? 0;
@@ -401,5 +414,50 @@ function Row({ k, v }: { k: string; v: React.ReactNode }) {
       <span className="text-ink/55">{k}</span>
       <span className="text-right">{v}</span>
     </div>
+  );
+}
+
+function ImageGallery({ images }: { images: string[] }) {
+  const [lightbox, setLightbox] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  return (
+    <>
+      <div
+        ref={scrollRef}
+        className="flex gap-3 overflow-x-auto pb-2 mb-5 snap-x scroll-smooth"
+        style={{ scrollbarWidth: 'thin' }}
+      >
+        {images.map((url, i) => (
+          <img
+            key={url}
+            src={url}
+            alt={`Imagen ${i + 1}`}
+            onClick={() => setLightbox(url)}
+            className="h-52 w-52 flex-shrink-0 object-cover rounded-2xl cursor-pointer hover:opacity-90 transition snap-start border border-ink/[.08]"
+          />
+        ))}
+      </div>
+
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-50 bg-ink/85 backdrop-blur-sm flex items-center justify-center p-6"
+          onClick={() => setLightbox(null)}
+        >
+          <img
+            src={lightbox}
+            alt=""
+            className="max-h-full max-w-full rounded-2xl shadow-2xl object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+          <button
+            onClick={() => setLightbox(null)}
+            className="absolute top-5 right-5 w-10 h-10 rounded-full bg-white/20 text-white hover:bg-white/35 transition text-xl grid place-items-center"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+    </>
   );
 }

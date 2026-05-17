@@ -1,4 +1,4 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useOperaciones } from '../../state/ops';
 import { ApiException } from '../../lib/api-client';
@@ -15,7 +15,6 @@ function toAmount(n: number): string {
 export default function OperacionNueva() {
   const nav = useNavigate();
   const { createOp } = useOperaciones();
-
   const [titulo, setTitulo] = useState('');
   const [tipoOferta, setTipoOferta] = useState<'producto' | 'servicio'>('producto');
   const [categoria, setCategoria] = useState<string>(PRODUCTO_CATS[0].value);
@@ -23,6 +22,7 @@ export default function OperacionNueva() {
   const [cantidad, setCantidad] = useState('1');
   const [grossInput, setGrossInput] = useState('');
   const [descripcion, setDescripcion] = useState('');
+  const [images, setImages] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -50,6 +50,7 @@ export default function OperacionNueva() {
         taxAmount: toAmount(taxAmount),
         platformFee: toAmount(platformFee),
         notes: descripcion.trim() || null,
+        images: images.length > 0 ? images : undefined,
       });
       nav(`/app/operaciones/${op.id}`);
     } catch (err) {
@@ -142,6 +143,12 @@ export default function OperacionNueva() {
             className="w-full px-3.5 py-3 rounded-xl bg-white border border-ink/10 text-[14px] outline-none focus:border-terracotta-500 focus:ring-4 focus:ring-terracotta-500/15 transition resize-none"
           />
         </label>
+
+        {/* Fotos */}
+        <ImageUploader
+          images={images}
+          onChange={setImages}
+        />
 
         {/* Cantidad */}
         <Field
@@ -240,6 +247,117 @@ function Row({ k, v }: { k: string; v: string }) {
     <div className="flex items-center justify-between">
       <span className="text-ink/55">{k}</span>
       <span className="text-ink/80">{v}</span>
+    </div>
+  );
+}
+
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
+
+async function uploadImage(file: File): Promise<string> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('upload_preset', 'cloud_name');
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error('Tiempo de espera agotado (30 s). Comprueba la conexión.')), 30_000),
+  );
+  const res = await Promise.race([
+    fetch('https://api.cloudinary.com/v1_1/dehsoatcf/image/upload', { method: 'POST', body: formData }),
+    timeout,
+  ]);
+  if (!res.ok) throw new Error(`Cloudinary error ${res.status}`);
+  const data = await res.json() as { secure_url: string };
+  return data.secure_url;
+}
+
+function ImageUploader({
+  images,
+  onChange,
+}: {
+  images: string[];
+  onChange: (urls: string[]) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  const handleFiles = async (files: FileList) => {
+    const remaining = 10 - images.length;
+    if (remaining <= 0) return;
+
+    const toUpload = Array.from(files).slice(0, remaining);
+    const oversized = toUpload.find((f) => f.size > MAX_FILE_SIZE);
+    if (oversized) {
+      setUploadError('Cada imagen debe ser menor de 5 MB.');
+      return;
+    }
+
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const urls = await Promise.all(toUpload.map((f) => uploadImage(f)));
+      onChange([...images, ...urls]);
+    } catch (err) {
+      console.error('[ImageUploader]', err);
+      const msg = err instanceof Error ? err.message : 'Error desconocido';
+      setUploadError(`Error subiendo las imágenes: ${msg}`);
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = '';
+    }
+  };
+
+  return (
+    <div>
+      <span className="block text-[13px] font-medium text-ink/80 mb-1.5">
+        Fotos del producto{' '}
+        <span className="font-normal text-ink/40">({images.length}/10 · máx 5 MB por imagen)</span>
+      </span>
+
+      <div className="flex flex-wrap gap-2">
+        {images.map((url, i) => (
+          <div
+            key={url}
+            className="relative w-20 h-20 rounded-xl overflow-hidden border border-ink/10 group shrink-0"
+          >
+            <img src={url} alt={`Foto ${i + 1}`} className="w-full h-full object-cover" />
+            <button
+              type="button"
+              onClick={() => onChange(images.filter((_, j) => j !== i))}
+              className="absolute top-1 right-1 w-5 h-5 rounded-full bg-ink/70 text-cream text-[11px] opacity-0 group-hover:opacity-100 transition grid place-items-center leading-none"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+
+        {images.length < 10 && (
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            disabled={uploading}
+            className="w-20 h-20 rounded-xl border-2 border-dashed border-ink/20 hover:border-terracotta-400 hover:bg-terracotta-50 transition grid place-items-center text-ink/35 hover:text-terracotta-500 disabled:opacity-40 shrink-0"
+          >
+            {uploading ? (
+              <span className="text-[11px] text-ink/50">Subiendo…</span>
+            ) : (
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            )}
+          </button>
+        )}
+      </div>
+
+      {uploadError && <p className="mt-1.5 text-[12px] text-terracotta-600">{uploadError}</p>}
+
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(e) => { if (e.target.files) handleFiles(e.target.files); }}
+      />
     </div>
   );
 }
