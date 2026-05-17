@@ -1,8 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 import { UsuariosService } from '../usuarios/usuarios.service';
 import type { Operacion } from '../operaciones/entities/operacion.entity';
+import { Notificacion } from './entities/notificacion.entity';
 
 @Injectable()
 export class NotificationsService {
@@ -12,6 +15,8 @@ export class NotificationsService {
   constructor(
     private readonly config: ConfigService,
     private readonly usuarios: UsuariosService,
+    @InjectRepository(Notificacion)
+    private readonly notiRepo: Repository<Notificacion>,
   ) {
     const host = config.get<string>('SMTP_HOST');
     const user = config.get<string>('SMTP_USER');
@@ -29,24 +34,75 @@ export class NotificationsService {
     }
   }
 
-  /** Email al comprador y al vendedor cuando se completa un pago. */
+  // ── In-app notifications ─────────────────────────────────────────────────────
+
+  /** Crea una notificación in-app persistida en BD. */
+  async createInApp(
+    userId: string,
+    type: string,
+    title: string,
+    body: string,
+    link?: string,
+  ): Promise<void> {
+    await this.notiRepo.save({ userId, type, title, body, link: link ?? null, read: false });
+  }
+
+  /** Últimas 50 notificaciones del usuario, más recientes primero. */
+  findByUser(userId: string): Promise<Notificacion[]> {
+    return this.notiRepo.find({
+      where: { userId },
+      order: { createdAt: 'DESC' },
+      take: 50,
+    });
+  }
+
+  /** Marca todas las notificaciones del usuario como leídas. */
+  async markAllRead(userId: string): Promise<void> {
+    await this.notiRepo.update({ userId, read: false }, { read: true });
+  }
+
+  // ── Email + in-app combined ───────────────────────────────────────────────────
+
+  /** Notifica (email + in-app) al comprador y al vendedor cuando se completa un pago. */
   async notifyPurchaseCompleted(op: Operacion): Promise<void> {
     const [buyer, seller] = await Promise.all([
       op.idComprador ? this.usuarios.findById(op.idComprador).catch(() => null) : null,
       op.idVendedor ? this.usuarios.findById(op.idVendedor).catch(() => null) : null,
     ]);
 
-    const title = op.titulo ?? 'Oferta';
+    const opTitle = op.titulo ?? 'Oferta';
     const amount = `${op.totalAmount} ${op.currency}`;
     const frontendUrl = this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
     const opUrl = `${frontendUrl}/app/operaciones/${op.id}`;
+    const opPath = `/app/operaciones/${op.id}`;
+
+    if (op.idComprador) {
+      void this.createInApp(
+        op.idComprador,
+        'purchase_completed',
+        'Pago completado',
+        `Tu pago para "${opTitle}" (${amount}) se procesó correctamente.`,
+        opPath,
+      ).catch(() => undefined);
+    }
+
+    if (op.idVendedor) {
+      const buyerName = buyer ? `${buyer.nombre} ${buyer.apellidos}`.trim() : 'Un comprador';
+      void this.createInApp(
+        op.idVendedor,
+        'new_sale',
+        'Nueva venta',
+        `${buyerName} compró "${opTitle}" por ${amount}.`,
+        opPath,
+      ).catch(() => undefined);
+    }
 
     if (buyer && this.isEmailEnabled(buyer)) {
       await this.send(
         buyer.correo,
-        `✅ Pago completado — ${title}`,
+        `✅ Pago completado — ${opTitle}`,
         this.tmpl(
-          `Tu pago para <strong>${title}</strong> por <strong>${amount}</strong> se ha procesado correctamente.`,
+          `Tu pago para <strong>${opTitle}</strong> por <strong>${amount}</strong> se ha procesado correctamente.`,
           opUrl,
         ),
       );
@@ -56,33 +112,42 @@ export class NotificationsService {
       const buyerName = buyer ? `${buyer.nombre} ${buyer.apellidos}`.trim() : 'Un comprador';
       await this.send(
         seller.correo,
-        `🎉 Nueva venta — ${title}`,
+        `🎉 Nueva venta — ${opTitle}`,
         this.tmpl(
-          `<strong>${buyerName}</strong> ha comprado <strong>${title}</strong> por <strong>${amount}</strong>.`,
+          `<strong>${buyerName}</strong> ha comprado <strong>${opTitle}</strong> por <strong>${amount}</strong>.`,
           opUrl,
         ),
       );
     }
   }
 
-  /** Email a la otra parte cuando cambia el estado de una operación. */
+  /** Notifica (email + in-app) a la otra parte cuando cambia el estado de una operación. */
   async notifyStatusChanged(op: Operacion, newStatus: string, initiatorId: string): Promise<void> {
     const otherId = op.idVendedor === initiatorId ? op.idComprador : op.idVendedor;
     if (!otherId) return;
 
+    const opTitle = op.titulo ?? 'Operación';
+    const label = this.statusLabel(newStatus);
+    const opPath = `/app/operaciones/${op.id}`;
+
+    void this.createInApp(
+      otherId,
+      'status_changed',
+      'Operación actualizada',
+      `"${opTitle}" cambió a: ${label}.`,
+      opPath,
+    ).catch(() => undefined);
+
     const other = await this.usuarios.findById(otherId).catch(() => null);
     if (!other || !this.isEmailEnabled(other)) return;
 
-    const title = op.titulo ?? 'Operación';
-    const label = this.statusLabel(newStatus);
     const frontendUrl = this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
-
     await this.send(
       other.correo,
       `Operación actualizada — ${label}`,
       this.tmpl(
-        `La operación <strong>${title}</strong> ha cambiado a estado: <strong>${label}</strong>.`,
-        `${frontendUrl}/app/operaciones/${op.id}`,
+        `La operación <strong>${opTitle}</strong> ha cambiado a estado: <strong>${label}</strong>.`,
+        `${frontendUrl}${opPath}`,
       ),
     );
   }

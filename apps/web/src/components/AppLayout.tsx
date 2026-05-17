@@ -2,6 +2,7 @@ import { ReactNode, useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../state/auth';
 import { useCart } from '../state/cart';
+import { useNotifications } from '../hooks/useNotifications';
 
 /* ─────────── ICONS (inline SVG, thin stroke) ─────────── */
 const iconProps = { width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
@@ -125,6 +126,7 @@ function TopBar({ sidebarWidth, visible }: { sidebarWidth: number; visible: bool
   const loc = useLocation();
   const [q, setQ] = useState('');
   const { count: cartCount } = useCart();
+  const { unreadCount } = useNotifications();
 
   return (
     <header
@@ -159,7 +161,11 @@ function TopBar({ sidebarWidth, visible }: { sidebarWidth: number; visible: bool
             aria-label="Notificaciones"
           >
             {Icons.bell}
-            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-terracotta-500" />
+            {unreadCount > 0 && (
+              <span className="absolute top-1.5 right-1.5 min-w-[16px] h-4 rounded-full bg-terracotta-500 text-cream text-[10px] font-medium grid place-items-center px-1">
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
           </button>
           <button
             onClick={() => nav('/app/carrito')}

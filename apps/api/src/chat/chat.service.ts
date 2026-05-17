@@ -9,6 +9,7 @@ export interface ChatRoom {
   participants: string[];
   participantDetails: Record<string, { name: string; photoUrl?: string; type: string }>;
   orderId?: string;
+  deletedFor?: string[];
   createdAt: admin.firestore.Timestamp;
   lastMessage?: {
     text: string;
@@ -59,17 +60,34 @@ export class ChatService {
     }
     const sortedParticipants = [...dto.participants].sort();
 
-    // Evitar chats duplicados entre los mismos participantes para el mismo pedido
-    const existing = await this.db
+    // Buscar chat existente entre los mismos participantes para el mismo pedido.
+    // Usamos array-contains + filtro local para evitar problemas con null vs campo ausente
+    // en la query de Firestore.
+    const candidateSnap = await this.db
       .collection('chats')
-      .where('participants', '==', sortedParticipants)
-      .where('orderId', '==', dto.orderId ?? null)
-      .limit(1)
+      .where('participants', 'array-contains', requesterUserId)
       .get();
 
-    if (!existing.empty) {
-      const doc = existing.docs[0];
-      return { id: doc.id, ...doc.data() } as ChatRoom;
+    const targetOrder = dto.orderId ?? null;
+    const match = candidateSnap.docs.find((d) => {
+      const data = d.data();
+      const parts = (data['participants'] as string[]) ?? [];
+      const sameParticipants =
+        parts.length === sortedParticipants.length &&
+        sortedParticipants.every((p) => parts.includes(p));
+      const sameOrder = (data['orderId'] ?? null) === targetOrder;
+      return sameParticipants && sameOrder;
+    });
+
+    if (match) {
+      const data = match.data() as Omit<ChatRoom, 'id'>;
+      // If requester had previously deleted this chat, restore it for them
+      if (((data as ChatRoom).deletedFor ?? []).includes(requesterUserId)) {
+        await this.db.collection('chats').doc(match.id).update({
+          deletedFor: admin.firestore.FieldValue.arrayRemove(requesterUserId),
+        });
+      }
+      return { id: match.id, ...data } as ChatRoom;
     }
 
     const chatData: Omit<ChatRoom, 'id'> = {
@@ -206,23 +224,68 @@ export class ChatService {
   }
 
   /**
-   * Registra el bloqueo del otro participante del chat.
-   * TODO: persistir en BD y filtrar mensajes server-side.
+   * Registra el bloqueo del otro participante y deja un mensaje de sistema visible para el otro.
    * @param chatId Chat en el que se bloquea
    * @param blockerId Usuario que bloquea (debe ser participante)
    */
   async blockUser(chatId: string, blockerId: string): Promise<void> {
     await this.assertParticipant(chatId, blockerId);
     this.logger.log(`[BLOCK] chat=${chatId} blocker=${blockerId}`);
+    const chatDoc = await this.db.collection('chats').doc(chatId).get();
+    const data = chatDoc.data() as ChatRoom;
+    const name = data.participantDetails?.[blockerId]?.name ?? 'Un participante';
+    await this.writeSystemMessage(chatId, `${name} ha bloqueado esta conversación.`);
   }
 
   /**
-   * Deshace el bloqueo del otro participante.
-   * TODO: eliminar registro de BD cuando se implemente persistencia.
+   * Deshace el bloqueo del otro participante y deja un mensaje de sistema.
    */
   async unblockUser(chatId: string, unblockerId: string): Promise<void> {
     await this.assertParticipant(chatId, unblockerId);
     this.logger.log(`[UNBLOCK] chat=${chatId} unblocker=${unblockerId}`);
+    const chatDoc = await this.db.collection('chats').doc(chatId).get();
+    const data = chatDoc.data() as ChatRoom;
+    const name = data.participantDetails?.[unblockerId]?.name ?? 'Un participante';
+    await this.writeSystemMessage(chatId, `${name} ha desbloqueado esta conversación.`);
+  }
+
+  /**
+   * Elimina el chat para el usuario actual (soft delete).
+   * El chat desaparece solo para él; el otro participante recibe un mensaje de sistema.
+   * @param chatId ID del chat en Firestore
+   * @param userId Usuario que elimina (debe ser participante)
+   */
+  async deleteChat(chatId: string, userId: string): Promise<void> {
+    await this.assertParticipant(chatId, userId);
+    const chatDoc = await this.db.collection('chats').doc(chatId).get();
+    const data = chatDoc.data() as ChatRoom;
+    const name = data.participantDetails?.[userId]?.name ?? 'Un participante';
+
+    await this.db.collection('chats').doc(chatId).update({
+      deletedFor: admin.firestore.FieldValue.arrayUnion(userId),
+    });
+
+    // Notify the other participant only if they haven't also deleted the chat
+    const otherId = data.participants.find((p) => p !== userId);
+    if (otherId && !(data.deletedFor ?? []).includes(otherId)) {
+      await this.writeSystemMessage(chatId, `${name} ha eliminado esta conversación.`);
+    }
+    this.logger.log(`[DELETE] chat=${chatId} userId=${userId}`);
+  }
+
+  /** Escribe un mensaje de sistema en el chat sin actualizar lastMessage. */
+  private async writeSystemMessage(chatId: string, text: string): Promise<void> {
+    await this.db
+      .collection('chats')
+      .doc(chatId)
+      .collection('messages')
+      .add({
+        senderId: 'system',
+        text,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        read: true,
+        isSystem: true,
+      });
   }
 
   /** Verifica que participantId pertenece al chat. Lanza ForbiddenException si no. */

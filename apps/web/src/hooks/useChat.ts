@@ -22,6 +22,7 @@ export interface ChatMessage {
   text: string;
   createdAt: Timestamp | null;
   read: boolean;
+  isSystem?: boolean;
 }
 
 interface UseChatOptions {

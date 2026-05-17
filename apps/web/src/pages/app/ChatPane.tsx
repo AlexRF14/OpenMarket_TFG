@@ -7,11 +7,13 @@ export function ChatPane({
   currentId,
   title,
   otherId,
+  onDelete,
 }: {
   chatId: string;
   currentId: string;
   title: string;
   otherId: string;
+  onDelete: () => void;
 }) {
   const { messages, loading, sendMessage, markAsRead } = useChat(chatId);
   const [draft, setDraft] = useState('');
@@ -101,6 +103,15 @@ export function ChatPane({
           <div className="text-center text-[13px] text-ink/45">Sin resultados para «{searchQuery}».</div>
         )}
         {visibleMessages.map((m) => {
+          if (m.isSystem) {
+            return (
+              <div key={m.id} className="flex justify-center">
+                <span className="text-[11.5px] text-ink/40 italic bg-ink/[.04] px-3 py-1 rounded-full">
+                  {m.text}
+                </span>
+              </div>
+            );
+          }
           const mine = m.senderId === currentId;
           return (
             <div key={m.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
@@ -143,6 +154,7 @@ export function ChatPane({
         messages={messages}
         blocked={blocked}
         onBlockChange={setBlocked}
+        onDelete={onDelete}
       />
     </section>
   );

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Timestamp } from 'firebase/firestore';
 import type { ChatMessage } from '../../hooks/useChat';
-import { reportChat, blockUser, unblockUser } from '../../lib/chat-api';
+import { reportChat, blockUser, unblockUser, deleteChat } from '../../lib/chat-api';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -46,6 +46,8 @@ interface Props {
   // Bloquear
   blocked: boolean;
   onBlockChange: (blocked: boolean) => void;
+  // Eliminar
+  onDelete: () => void;
 }
 
 export function ChatSettingsDrawer({
@@ -53,6 +55,7 @@ export function ChatSettingsDrawer({
   searchQuery, onSearch, matchCount,
   messages,
   blocked, onBlockChange,
+  onDelete,
 }: Props) {
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -63,11 +66,21 @@ export function ChatSettingsDrawer({
   // Bloquear state
   const [blockBusy, setBlockBusy] = useState(false);
 
+  // Eliminar state
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   useEffect(() => { if (open) searchRef.current?.focus(); }, [open]);
 
-  // Reset report form when drawer closes
+  // Reset state when drawer closes
   useEffect(() => {
-    if (!open) { setReason(''); setReportState('idle'); }
+    if (!open) {
+      setReason('');
+      setReportState('idle');
+      setDeleteConfirm(false);
+      setDeleteError(null);
+    }
   }, [open]);
 
   const submitReport = async () => {
@@ -79,6 +92,18 @@ export function ChatSettingsDrawer({
       setReason('');
     } catch {
       setReportState('error');
+    }
+  };
+
+  const confirmDelete = async () => {
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      await deleteChat(chatId);
+      onDelete();
+    } catch {
+      setDeleteError('Error al eliminar el chat. Inténtalo de nuevo.');
+      setDeleteBusy(false);
     }
   };
 
@@ -194,6 +219,45 @@ export function ChatSettingsDrawer({
             >
               {blockBusy ? '…' : blocked ? 'Desbloquear' : 'Bloquear'}
             </button>
+          </section>
+
+          {/* ── Eliminar ───────────────────────────────────── */}
+          <section>
+            <h3 className="text-[11px] font-semibold uppercase tracking-wider text-ink/40 mb-2">Eliminar chat</h3>
+            <p className="text-[12.5px] text-ink/55 mb-3">
+              Solo tú dejarás de ver este chat. El otro participante recibirá una notificación.
+            </p>
+            {deleteError && (
+              <p className="mb-2 text-[12px] text-terracotta-600">{deleteError}</p>
+            )}
+            {deleteConfirm ? (
+              <div className="space-y-2">
+                <p className="text-[12.5px] font-medium text-ink">¿Seguro? Esta acción no se puede deshacer.</p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={confirmDelete}
+                    disabled={deleteBusy}
+                    className="flex-1 h-9 rounded-xl bg-red-500 text-white text-[13px] font-medium disabled:opacity-40 hover:bg-red-600 transition"
+                  >
+                    {deleteBusy ? 'Eliminando…' : 'Sí, eliminar'}
+                  </button>
+                  <button
+                    onClick={() => { setDeleteConfirm(false); setDeleteError(null); }}
+                    disabled={deleteBusy}
+                    className="flex-1 h-9 rounded-xl bg-white border border-ink/15 text-[13px] hover:border-ink/30 transition"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => setDeleteConfirm(true)}
+                className="w-full h-9 rounded-xl bg-white border border-red-200 text-red-600 text-[13px] font-medium hover:bg-red-50 hover:border-red-300 transition"
+              >
+                Eliminar chat
+              </button>
+            )}
           </section>
 
         </div>

@@ -256,6 +256,7 @@ export default function Chats() {
           currentId={profile.id}
           title={chatTitle(selected, profile.id)}
           otherId={selected.participants.find((p) => p !== profile.id) ?? ''}
+          onDelete={() => setSelectedId(null)}
         />
       )}
     </div>

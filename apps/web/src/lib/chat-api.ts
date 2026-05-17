@@ -58,3 +58,8 @@ export async function blockUser(chatId: string): Promise<void> {
 export async function unblockUser(chatId: string): Promise<void> {
   await api.delete(`/chats/${chatId}/block`);
 }
+
+/** Elimina el chat para el usuario actual (soft delete). */
+export async function deleteChat(chatId: string): Promise<void> {
+  await api.post(`/chats/${chatId}/delete`, {});
+}

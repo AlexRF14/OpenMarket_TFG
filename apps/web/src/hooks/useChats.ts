@@ -14,6 +14,7 @@ export interface ChatRoom {
   participants: string[];
   participantDetails: Record<string, ParticipantDetail>;
   orderId?: string;
+  deletedFor?: string[];
   createdAt: Timestamp | null;
   lastMessage?: {
     text: string;
@@ -73,6 +74,7 @@ export function useChats(participantId: string | null): UseChatsReturn {
       (snapshot) => {
         const rooms: ChatRoom[] = snapshot.docs
           .map((d) => ({ id: d.id, ...(d.data() as Omit<ChatRoom, 'id'>) }))
+          .filter((r) => !(r.deletedFor ?? []).includes(participantId!))
           .sort((a, b) => {
             const ta = a.createdAt?.toMillis() ?? 0;
             const tb = b.createdAt?.toMillis() ?? 0;

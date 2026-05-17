@@ -99,6 +99,23 @@ export class ChatController {
   }
 
   /**
+   * Elimina el chat para el usuario actual (soft delete — el otro participante no lo pierde).
+   * El otro participante recibe un mensaje de sistema notificándole la eliminación.
+   */
+  @Post(':chatId/delete')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Eliminar chat para el usuario actual (soft delete)' })
+  @ApiParam({ name: 'chatId' })
+  @ApiResponse({ status: 200 })
+  @ApiResponse({ status: 403, description: 'No eres participante' })
+  async deleteChat(
+    @Param('chatId') chatId: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<void> {
+    await this.chatService.deleteChat(chatId, user.id);
+  }
+
+  /**
    * Denuncia una sala de chat.
    * TODO: persistir en BD y notificar al equipo de moderación.
    */
