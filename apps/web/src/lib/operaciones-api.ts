@@ -1,5 +1,5 @@
 import { api } from './api-client';
-import type { CreateOperacionDto, OperacionDto, OperacionStatus } from './api-types';
+import type { CreateOperacionDto, OperacionDto, OperacionStatus, UpdateOperacionDto } from './api-types';
 
 export type OperacionSide = 'comprando' | 'vendiendo';
 
@@ -23,6 +23,14 @@ export function updateStatus(id: string, status: OperacionStatus): Promise<Opera
 export function listPublic(q?: string): Promise<OperacionDto[]> {
   const qs = q ? `?q=${encodeURIComponent(q)}` : '';
   return api.get<OperacionDto[]>(`/operaciones/explorador${qs}`);
+}
+
+export function updateOp(id: string, payload: UpdateOperacionDto): Promise<OperacionDto> {
+  return api.patch<OperacionDto>(`/operaciones/${id}`, payload);
+}
+
+export function updateSettings(id: string, payload: { activa?: boolean; mostrarSinStock?: boolean }): Promise<OperacionDto> {
+  return api.patch<OperacionDto>(`/operaciones/${id}/settings`, payload);
 }
 
 export function initiateCheckout(id: string, quantity = 1): Promise<{ checkoutUrl: string; sessionId: string }> {

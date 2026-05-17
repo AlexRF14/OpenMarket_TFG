@@ -18,6 +18,7 @@ const typeIcon: Record<string, string> = {
   new_sale: '🎉',
   status_changed: '🔄',
   new_chat: '💬',
+  rate_invite: '⭐',
 };
 
 export default function Notificaciones() {

@@ -84,6 +84,14 @@ export class NotificationsService {
         `Tu pago para "${opTitle}" (${amount}) se procesó correctamente.`,
         opPath,
       ).catch(() => undefined);
+
+      void this.createInApp(
+        op.idComprador,
+        'rate_invite',
+        '¿Cómo fue tu experiencia?',
+        `Puntúa y comenta "${opTitle}" para ayudar a otros compradores.`,
+        opPath,
+      ).catch(() => undefined);
     }
 
     if (op.idVendedor) {

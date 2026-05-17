@@ -18,6 +18,7 @@ import CuadroMandos from './pages/app/CuadroMandos';
 import Operaciones from './pages/app/Operaciones';
 import OperacionDetalle from './pages/app/OperacionDetalle';
 import OperacionNueva from './pages/app/OperacionNueva';
+import OperacionEditar from './pages/app/OperacionEditar';
 import Explorador from './pages/app/Explorador';
 import Perfil from './pages/app/Perfil';
 import { AuthProvider } from './state/auth';
@@ -49,6 +50,7 @@ export default function App() {
           <Route path="/app/explorador" element={<Explorador />} />
           <Route path="/app/operaciones" element={<Operaciones />} />
           <Route path="/app/operaciones/nueva" element={<OperacionNueva />} />
+          <Route path="/app/operaciones/:id/editar" element={<OperacionEditar />} />
           <Route path="/app/operaciones/:id" element={<OperacionDetalle />} />
           <Route path="/app/perfil/:id" element={<Perfil />} />
         </Route>

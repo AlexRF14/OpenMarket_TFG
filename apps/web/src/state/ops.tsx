@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import * as opsApi from '../lib/operaciones-api';
-import type { CreateOperacionDto, OperacionDto, OperacionStatus } from '../lib/api-types';
+import type { CreateOperacionDto, OperacionDto, OperacionStatus, UpdateOperacionDto } from '../lib/api-types';
 import { useAuth } from './auth';
 
 /**
@@ -88,7 +88,21 @@ export function useOperacion(id: string | undefined) {
     return updated;
   }, [id]);
 
-  return { op, loading, error, reload, changeStatus };
+  const updateOp = useCallback(async (payload: UpdateOperacionDto) => {
+    if (!id) return;
+    const updated = await opsApi.updateOp(id, payload);
+    setOp(updated);
+    return updated;
+  }, [id]);
+
+  const updateSettings = useCallback(async (payload: { activa?: boolean; mostrarSinStock?: boolean }) => {
+    if (!id) return;
+    const updated = await opsApi.updateSettings(id, payload);
+    setOp(updated);
+    return updated;
+  }, [id]);
+
+  return { op, loading, error, reload, changeStatus, updateOp, updateSettings };
 }
 
 export const STATUS_META: Record<OperacionStatus, { label: string; dot: string; bg: string; text: string }> = {

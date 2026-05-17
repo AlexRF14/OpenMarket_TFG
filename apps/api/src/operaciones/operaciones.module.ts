@@ -5,9 +5,10 @@ import { OperacionesRepository } from './operaciones.repository';
 import { OperacionesService } from './operaciones.service';
 import { OperacionesController } from './operaciones.controller';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { ValoracionesModule } from '../valoraciones/valoraciones.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Operacion]), NotificationsModule],
+  imports: [TypeOrmModule.forFeature([Operacion]), NotificationsModule, ValoracionesModule],
   controllers: [OperacionesController],
   providers: [OperacionesRepository, OperacionesService],
   exports: [OperacionesService],

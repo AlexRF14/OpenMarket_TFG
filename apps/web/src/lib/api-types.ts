@@ -148,8 +148,34 @@ export interface OperacionDto {
   chatRoomId: string | null;
   notes: string | null;
   images: string[] | null;
+  activa: boolean;
+  mostrarSinStock: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ValoracionDto {
+  id: string;
+  operacionId: string;
+  autorId: string;
+  autorNombre: string;
+  puntuacion: number;
+  comentario: string | null;
+  createdAt: string;
+}
+
+export interface UpdateOperacionDto {
+  titulo?: string;
+  categoria?: Categoria;
+  cantidad?: number;
+  stock?: number;
+  operationType?: OperationType;
+  totalAmount?: string;
+  amountNet?: string;
+  taxAmount?: string;
+  platformFee?: string;
+  notes?: string | null;
+  images?: string[];
 }
 
 export interface CreateOperacionDto {

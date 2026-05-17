@@ -77,6 +77,12 @@ export class Operacion {
   @Column({ type: 'text', array: true, nullable: true, default: null })
   images!: string[] | null;
 
+  @Column({ type: 'boolean', default: true })
+  activa!: boolean;
+
+  @Column({ name: 'mostrar_sin_stock', type: 'boolean', default: false })
+  mostrarSinStock!: boolean;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 

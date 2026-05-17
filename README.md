@@ -1,6 +1,6 @@
 # OpenMarket — Monorepo
 
-Frontend + Backend de **OpenMarket**, plataforma de marketplace digital (B2B/B2C/C2C) del TFG. Implementa autenticación (JWT + refresh cookie), gestión de empresas con Stripe Connect KYB, marketplace de operaciones con búsqueda y filtros, carrito de compra, chat en tiempo real (Firestore), pagos split via Stripe Checkout y notificaciones por email.
+Frontend + Backend de **OpenMarket**, plataforma de marketplace digital (B2B/B2C/C2C) del TFG. Implementa autenticación (JWT + refresh cookie), gestión de empresas con Stripe Connect KYB, marketplace de operaciones con búsqueda y filtros, carrito de compra, chat en tiempo real (Firestore), pagos split via Stripe Checkout, notificaciones email + in-app, imágenes de productos (Cloudinary), valoraciones y comentarios, y controles avanzados de visibilidad por vendedor.
 
 ## Stack
 
@@ -8,6 +8,7 @@ Frontend + Backend de **OpenMarket**, plataforma de marketplace digital (B2B/B2C
 - **Backend:** NestJS 10 + TypeORM (PostgreSQL 16) + Stripe Connect
 - **Frontend:** Vite 5 + React 18 + React Router v6 + TypeScript + Tailwind CSS 3
 - **Cloud:** Firebase (Firestore chat) + Google Cloud
+- **Imágenes:** Cloudinary (unsigned upload, cloud `dehsoatcf`, preset `cloud_name`)
 - **Pagos:** Stripe Connect Express (split) + Stripe Checkout
 - **Email:** Nodemailer (Gmail SMTP)
 - **Fuentes:** Fraunces (display) + Inter (UI)
@@ -117,10 +118,12 @@ apps/web/src/
       ├─ Home.tsx           # grid de últimas ops públicas + filtros (tipo/categoría/precio)
       ├─ Explorador.tsx     # tabla de ops con búsqueda + filtros + paginación
       ├─ Operaciones.tsx    # mis operaciones (comprando/vendiendo/borrador)
-      ├─ OperacionNueva.tsx # crear op: selector tipo→subcategoría, precio con IVA
-      ├─ OperacionDetalle.tsx  # detalle + chat + comprar + panel inventario vendedor
+      ├─ OperacionNueva.tsx # crear op: selector tipo→subcategoría, precio con IVA, fotos
+      ├─ OperacionEditar.tsx   # editar borrador (pending): mismo form, datos precargados
+      ├─ OperacionDetalle.tsx  # detalle + valoraciones + comprar + inventario + toggles visibilidad
       ├─ Carrito.tsx        # carrito con checkboxes, qty stepper, pago individual/secuencial
       ├─ Chats.tsx
+      ├─ Notificaciones.tsx # lista in-app con iconos, timestamps relativos, marcar leídas
       └─ Ajustes.tsx        # settings (email/push/privacy/accessibility + change-email/password)
 ```
 
@@ -139,9 +142,13 @@ apps/api/src/
 │  ├─ payments.service.ts  # createCheckoutSession, buyOperacion(qty), handleEvent
 │  ├─ webhook.controller.ts  # POST /webhook (rawBody)
 │  └─ payments.controller.ts # POST /operacion/:id/checkout { quantity? }
-├─ notifications/          # Nodemailer email notifications
+├─ notifications/          # Email (nodemailer) + in-app (tabla notificaciones)
 │  ├─ notifications.service.ts  # send(), notifyPurchaseCompleted(), notifyStatusChanged()
+│  ├─ notificaciones.controller.ts  # GET /notificaciones, PATCH /notificaciones/read-all
 │  └─ notifications.module.ts
+├─ valoraciones/           # Ratings + comentarios por operación
+│  ├─ valoraciones.service.ts   # create(), findByOperacion()
+│  └─ valoraciones.module.ts
 ├─ chat/                   # Firestore chat room creation
 ├─ settings/               # UserSettings JSONB CRUD
 ├─ common/
@@ -175,11 +182,13 @@ apps/api/src/
 | `/app` | Home: grid ops públicas + filtros |
 | `/app/explorador` | Tabla de mercado + búsqueda + filtros |
 | `/app/operaciones` | Mis operaciones |
-| `/app/operaciones/nueva` | Crear operación |
-| `/app/operaciones/:id` | Detalle: chat + comprar + estado |
+| `/app/operaciones/nueva` | Crear operación (con fotos Cloudinary) |
+| `/app/operaciones/:id` | Detalle: valoraciones + comprar + inventario + controles vendedor |
+| `/app/operaciones/:id/editar` | Editar borrador (solo vendedor + pending) |
 | `/app/operaciones/:id?checkout=success\|cancelled` | Banners post-Stripe |
 | `/app/carrito` | Carrito de compra |
 | `/app/chats` | Chat list + conversación |
+| `/app/notificaciones` | Notificaciones in-app |
 | `/app/ajustes` | Settings (email, accesibilidad, cambiar contraseña/email) |
 
 ## Flujo de estados de una Operación
@@ -192,11 +201,12 @@ pending (borrador, solo visible al vendedor)
     → cancelled  (cancelada, solo visible al creador)
 ```
 
-- **pending**: el vendedor puede publicar (→ confirmed) o cancelar.
-- **confirmed**: cualquier usuario autenticado puede comprar. Stock decrementa por qty.
-- **shipped**: stock = 0. Oculta en mercado público. Sigue en Operaciones de participantes.
-- **completed**: final. El vendedor marca tras entregar.
+- **pending**: el vendedor puede editar, publicar (→ confirmed) o cancelar.
+- **confirmed**: cualquier usuario autenticado puede comprar. Stock decrementa por qty. Si `activa=true` y `stock>0` aparece en Explorador/Home.
+- **shipped**: stock = 0. Oculta en mercado (excepto si `mostrarSinStock=true`). Comprador puede valorar.
+- **completed**: final. El vendedor marca tras entregar. Comprador puede valorar.
 - Al cambiar estado vía `PATCH /operaciones/:id/status`, `NotificationsService` envía email a la otra parte (si tiene notificaciones email activadas en Ajustes).
+- Editar stock (confirmed/shipped): `PATCH /operaciones/:id` `{ stock }` — actualiza `cantidad` preservando unidades vendidas; stock→0 mueve a `shipped`, stock→>0 vuelve a `confirmed`.
 
 ## Categorías de operaciones
 
@@ -216,12 +226,13 @@ Dos grupos de subcategorías. Se almacenan como `varchar(50)` en DB (no enum):
 - Checkout siempre es por operación individual (una Stripe Session por item).
 - El carrito solo elimina un item cuando el usuario pulsa **Actualizar** en el banner `?checkout=success`. Cancelar Stripe → item permanece en carrito.
 
-## Notificaciones email
+## Notificaciones (email + in-app)
 
-- Backend: `NotificationsService` (nodemailer). Si SMTP no está configurado → silencioso.
-- **Compra completada** → email al comprador + email al vendedor.
-- **Cambio de estado** → email a la otra parte (no al que inicia el cambio).
-- El toggle **"Email"** en Ajustes → Notificaciones activa/desactiva estos emails por usuario.
+- Backend: `NotificationsService` (nodemailer + tabla `notificaciones` en PostgreSQL).
+- **In-app** (`GET /api/v1/notificaciones`): últimas 50, badge en campana del topbar, página `/app/notificaciones`.
+- **Compra completada** → in-app + email al comprador y vendedor. También envía invitación a valorar (⭐) al comprador.
+- **Cambio de estado** → in-app + email a la otra parte.
+- El toggle **"Email"** en Ajustes → Notificaciones activa/desactiva emails por usuario.
 - Notificaciones de mensajes de chat **no implementadas** (requeriría Firebase Cloud Functions).
 
 ## Arquitectura — Flujos clave
@@ -239,9 +250,13 @@ Dos grupos de subcategorías. Se almacenan como `varchar(50)` en DB (no enum):
 
 ### Operaciones + Marketplace
 - `POST /api/v1/operaciones` → crea op (estado `pending`; creator = vendedor)
-- `GET /api/v1/operaciones/explorador?q=X` → ops públicas `status=confirmed` únicamente
+- `GET /api/v1/operaciones/explorador?q=X` → ops `activa=true`, `(confirmed+stock>0)` o `(shipped+mostrarSinStock=true)`
 - `GET /api/v1/operaciones/:id` → visible a cualquier usuario autenticado
+- `PATCH /api/v1/operaciones/:id` → editar (pending: todo; confirmed/shipped: solo stock)
+- `PATCH /api/v1/operaciones/:id/settings` → `{ activa?, mostrarSinStock? }` (solo vendedor)
 - `PATCH /api/v1/operaciones/:id/status` → solo participantes; dispara email notificación
+- `GET /api/v1/operaciones/:id/valoraciones` → lista de ratings
+- `POST /api/v1/operaciones/:id/valoraciones` → crear rating (solo comprador, 1 por operación)
 
 ### Checkout + Pagos
 - `POST /api/v1/payments/operacion/:id/checkout` body `{ quantity?: number }`
@@ -265,8 +280,7 @@ stripe listen --forward-to localhost:3001/webhook
 
 - [ ] Chat room auto-creation en `POST /operaciones` (actualmente es un TODO)
 - [ ] Pago de múltiples items del carrito en una sola sesión (requiere backend multi-item)
-- [ ] Reseñas / ratings post-operación
-- [ ] Reportes / bloqueos (chat + operaciones)
 - [ ] Rate limiting en endpoints sensibles (pagos, login)
 - [ ] Tests: auth flow, checkout session, webhook `checkout.session.completed`, transiciones de estado
 - [ ] Notificaciones push / mensajes de chat (Firebase Cloud Functions)
+- [ ] Panel de administración (gestión de usuarios, operaciones, reportes)

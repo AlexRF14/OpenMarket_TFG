@@ -31,7 +31,8 @@ export class OperacionesRepository {
     const qb = this.repo
       .createQueryBuilder('op')
       .where("op.operationType = 'publica'")
-      .andWhere("op.status = 'confirmed'")
+      .andWhere('op.activa = true')
+      .andWhere("((op.status = 'confirmed' AND op.stock > 0) OR (op.status = 'shipped' AND op.mostrar_sin_stock = true))")
       .orderBy('op.createdAt', 'DESC');
     if (q) {
       const like = `%${q.toLowerCase()}%`;

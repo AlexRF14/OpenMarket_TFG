@@ -1,21 +1,20 @@
 import {
-  Controller, Get, Post, Patch, Body, Param, Query, UseGuards, ForbiddenException,
+  Controller, Get, Post, Patch, Body, Param, Query, UseGuards,
+  ForbiddenException, BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { OperacionStatus } from '@marketplace/shared-types';
 import { OperacionesService } from './operaciones.service';
 import { CreateOperacionDto } from './dto/create-operacion.dto';
+import { UpdateOperacionDto } from './dto/update-operacion.dto';
+import { UpdateOperacionSettingsDto } from './dto/update-operacion-settings.dto';
 import { UpdateOperacionStatusDto } from './dto/update-operacion-status.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
 import { NotificationsService } from '../notifications/notifications.service';
+import { ValoracionesService } from '../valoraciones/valoraciones.service';
+import { CreateValoracionDto } from '../valoraciones/dto/create-valoracion.dto';
 
-/**
- * Endpoints REST para operaciones.
- *
- * TODO: integrar con PaymentsService al confirmar (crear Stripe Checkout Session).
- * TODO: validar que sellerCompanyId/buyerCompanyId pertenezcan al usuario antes de aceptarlas.
- */
 @ApiTags('operaciones')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
@@ -24,18 +23,19 @@ export class OperacionesController {
   constructor(
     private readonly service: OperacionesService,
     private readonly notifications: NotificationsService,
+    private readonly valoraciones: ValoracionesService,
   ) {}
 
   @Get('explorador')
-  @ApiOperation({ summary: 'Explorador de mercado: operaciones de tipo PUBLICA' })
-  @ApiResponse({ status: 200, description: 'Array de operaciones públicas' })
+  @ApiOperation({ summary: 'Explorador de mercado: operaciones públicas activas' })
+  @ApiResponse({ status: 200 })
   findExplorador(@Query('q') q?: string) {
     return this.service.findPublic(q);
   }
 
   @Get('mias')
   @ApiOperation({ summary: 'Listar operaciones donde el usuario es comprador o vendedor' })
-  @ApiResponse({ status: 200, description: 'Array de operaciones del usuario autenticado' })
+  @ApiResponse({ status: 200 })
   async findMine(
     @CurrentUser() user: CurrentUserPayload,
     @Query('side') side?: 'comprando' | 'vendiendo',
@@ -47,23 +47,22 @@ export class OperacionesController {
       this.service.findByComprador(user.id),
       this.service.findByVendedor(user.id),
     ]);
-    // Deduplicar (poco probable pero por seguridad si fuera ambos)
     const map = new Map<string, typeof comprando[number]>();
     [...comprando, ...vendiendo].forEach((o) => map.set(o.id, o));
     return [...map.values()].sort((a, b) => +b.createdAt - +a.createdAt);
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Detalle de una operación — visible para cualquier usuario autenticado' })
-  @ApiResponse({ status: 200, description: 'Operación encontrada' })
-  @ApiResponse({ status: 404, description: 'Operación no encontrada' })
+  @ApiOperation({ summary: 'Detalle de una operación' })
+  @ApiResponse({ status: 200 })
+  @ApiResponse({ status: 404 })
   findById(@Param('id') id: string) {
     return this.service.findById(id);
   }
 
   @Post()
   @ApiOperation({ summary: 'Crear una operación nueva (estado pending)' })
-  @ApiResponse({ status: 201, description: 'Operación creada' })
+  @ApiResponse({ status: 201 })
   create(@CurrentUser() user: CurrentUserPayload, @Body() dto: CreateOperacionDto) {
     const cantidad = dto.cantidad ?? 1;
     return this.service.save({
@@ -84,12 +83,60 @@ export class OperacionesController {
       currency: 'EUR',
       notes: dto.notes ?? null,
       images: dto.images ?? null,
+      activa: true,
+      mostrarSinStock: false,
     });
+  }
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Editar operación (pending: todos los campos; confirmed: solo stock)' })
+  @ApiResponse({ status: 200 })
+  @ApiResponse({ status: 403 })
+  async update(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') id: string,
+    @Body() dto: UpdateOperacionDto,
+  ) {
+    const op = await this.service.findById(id);
+    if (op.idVendedor !== user.id) throw new ForbiddenException('Solo el vendedor puede editar');
+
+    if (op.status === OperacionStatus.PENDING) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { stock: _stock, ...rest } = dto;
+      return this.service.save({ ...op, ...rest });
+    }
+
+    if (op.status === OperacionStatus.CONFIRMED || op.status === OperacionStatus.SHIPPED) {
+      if (dto.stock === undefined) return op;
+      const soldUnits = op.cantidad - op.stock;
+      const newCantidad = soldUnits + dto.stock;
+      const newStatus = dto.stock > 0 ? OperacionStatus.CONFIRMED : OperacionStatus.SHIPPED;
+      return this.service.save({ ...op, stock: dto.stock, cantidad: newCantidad, status: newStatus });
+    }
+
+    throw new ForbiddenException('La operación no puede editarse en su estado actual');
+  }
+
+  @Patch(':id/settings')
+  @ApiOperation({ summary: 'Ajustar visibilidad (solo vendedor, any status)' })
+  @ApiResponse({ status: 200 })
+  @ApiResponse({ status: 403 })
+  async updateSettings(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') id: string,
+    @Body() dto: UpdateOperacionSettingsDto,
+  ) {
+    const op = await this.service.findById(id);
+    if (op.idVendedor !== user.id) throw new ForbiddenException('Solo el vendedor puede modificar los ajustes');
+    const patch: Partial<typeof op> = {};
+    if (dto.activa !== undefined) patch.activa = dto.activa;
+    if (dto.mostrarSinStock !== undefined) patch.mostrarSinStock = dto.mostrarSinStock;
+    return this.service.save({ ...op, ...patch });
   }
 
   @Patch(':id/status')
   @ApiOperation({ summary: 'Cambiar el estado de una operación' })
-  @ApiResponse({ status: 200, description: 'Operación actualizada' })
+  @ApiResponse({ status: 200 })
   async updateStatus(
     @CurrentUser() user: CurrentUserPayload,
     @Param('id') id: string,
@@ -102,5 +149,29 @@ export class OperacionesController {
     const updated = await this.service.save({ ...op, status: dto.status });
     void this.notifications.notifyStatusChanged(updated, dto.status, user.id);
     return updated;
+  }
+
+  @Get(':id/valoraciones')
+  @ApiOperation({ summary: 'Listar valoraciones de una operación' })
+  @ApiResponse({ status: 200 })
+  getValoraciones(@Param('id') id: string) {
+    return this.valoraciones.findByOperacion(id);
+  }
+
+  @Post(':id/valoraciones')
+  @ApiOperation({ summary: 'Crear valoración (solo comprador, op shipped o completed)' })
+  @ApiResponse({ status: 201 })
+  @ApiResponse({ status: 403 })
+  async createValoracion(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') id: string,
+    @Body() dto: CreateValoracionDto,
+  ) {
+    const op = await this.service.findById(id);
+    if (op.idComprador !== user.id) throw new ForbiddenException('Solo el comprador puede valorar');
+    if (['pending', 'cancelled', 'refunded'].includes(op.status)) {
+      throw new BadRequestException('No se puede valorar una operación pendiente o cancelada');
+    }
+    return this.valoraciones.create(id, user.id, dto);
   }
 }
