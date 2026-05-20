@@ -232,8 +232,18 @@ export default function Ajustes() {
             {initial}
           </div>
           <div className="flex-1">
-            <div className="text-[15px] font-medium">{name || '—'}</div>
-            <div className="text-[12.5px] text-ink/55 capitalize">{account ?? '—'}</div>
+            {profile?.rol === 'empresa' && profile.empresaNombre ? (
+              <>
+                <div className="text-[15px] font-medium">{profile.empresaNombre}</div>
+                <div className="text-[12.5px] text-ink/55">Responsable: {name || '—'}</div>
+                <div className="text-[12.5px] text-ink/55 capitalize">{account ?? '—'}</div>
+              </>
+            ) : (
+              <>
+                <div className="text-[15px] font-medium">{name || '—'}</div>
+                <div className="text-[12.5px] text-ink/55 capitalize">{account ?? '—'}</div>
+              </>
+            )}
           </div>
         </div>
 

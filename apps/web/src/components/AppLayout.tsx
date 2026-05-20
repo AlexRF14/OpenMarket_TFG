@@ -26,7 +26,7 @@ const Icons = {
 function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   const { account, name, logout, profile } = useAuth();
   const nav = useNavigate();
-  const display = name || '—';
+  const display = (profile?.rol === 'empresa' && profile.empresaNombre) ? profile.empresaNombre : (name || '—');
   const initial = (display[0] ?? '?').toUpperCase();
   const onLogout = async () => {
     await logout();

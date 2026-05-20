@@ -1,6 +1,6 @@
 # OpenMarket — Monorepo
 
-Frontend + Backend de **OpenMarket**, plataforma de marketplace digital (B2B/B2C/C2C) del TFG. Implementa autenticación (JWT + refresh cookie), gestión de empresas con Stripe Connect KYB, marketplace de operaciones con búsqueda y filtros, carrito de compra, chat en tiempo real (Firestore), pagos split via Stripe Checkout, notificaciones email + in-app, imágenes de productos (Cloudinary), valoraciones y comentarios, y controles avanzados de visibilidad por vendedor.
+Frontend + Backend de **OpenMarket**, plataforma de marketplace digital (B2B/B2C/C2C) del TFG. Implementa autenticación (JWT + refresh cookie), gestión de empresas con Stripe Connect KYB (onboarding en español), marketplace de operaciones con búsqueda y filtros, carrito de compra, chat en tiempo real (Firestore), pagos split via Stripe Checkout, notificaciones email + in-app, imágenes de productos (Cloudinary), valoraciones y comentarios, controles avanzados de visibilidad por vendedor, y perfil con nombre de empresa para cuentas business.
 
 ## Stack
 
@@ -117,14 +117,15 @@ apps/web/src/
    └─ app/
       ├─ Home.tsx           # grid de últimas ops públicas + filtros (tipo/categoría/precio)
       ├─ Explorador.tsx     # tabla de ops con búsqueda + filtros + paginación
-      ├─ Operaciones.tsx    # mis operaciones (comprando/vendiendo/borrador)
+      ├─ Operaciones.tsx    # mis operaciones: tabla con columna unidades (qty vendida/comprada) + total real
       ├─ OperacionNueva.tsx # crear op: selector tipo→subcategoría, precio con IVA, fotos
       ├─ OperacionEditar.tsx   # editar borrador (pending): mismo form, datos precargados
-      ├─ OperacionDetalle.tsx  # detalle + valoraciones + comprar + inventario + toggles visibilidad
+      ├─ OperacionDetalle.tsx  # detalle + valoraciones + comprar + inventario + toggles visibilidad + total pagado
       ├─ Carrito.tsx        # carrito con checkboxes, qty stepper, pago individual/secuencial
       ├─ Chats.tsx
       ├─ Notificaciones.tsx # lista in-app con iconos, timestamps relativos, marcar leídas
-      └─ Ajustes.tsx        # settings (email/push/privacy/accessibility + change-email/password)
+      ├─ Perfil.tsx         # perfil público: nombre responsable + nombre empresa (si empresa)
+      └─ Ajustes.tsx        # settings (email/push/privacy/accessibility + change-email/password + nombre empresa)
 ```
 
 ## Estructura — Backend (apps/api/)
@@ -245,8 +246,9 @@ Dos grupos de subcategorías. Se almacenan como `varchar(50)` en DB (no enum):
 
 ### Empresas + Stripe Connect
 - `POST /api/v1/empresas` → crea Empresa (1 por user, 409 si ya existe)
-- `POST /api/v1/payments/connect/onboarding` → Stripe Express Account + Account Link
+- `POST /api/v1/payments/connect/onboarding` → Stripe Express Account + Account Link (URL con `?locale=es-ES` forzado)
 - Webhook `account.updated` → actualiza `verifiedStatus` (VERIFIED/PENDING/REJECTED)
+- `GET /api/v1/settings/profile` → devuelve `empresaNombre` para cuentas empresa
 
 ### Operaciones + Marketplace
 - `POST /api/v1/operaciones` → crea op (estado `pending`; creator = vendedor)

@@ -38,6 +38,7 @@ export interface ProfileResponse {
   apellidos: string;
   correo: string;
   rol: UserRole;
+  empresaNombre?: string | null;
 }
 
 export interface UserSettings {

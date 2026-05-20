@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { UsuariosService } from '../usuarios/usuarios.service';
+import { EmpresasService } from '../empresas/empresas.service';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import {
   UserSettings,
@@ -8,7 +9,10 @@ import {
 
 @Injectable()
 export class SettingsService {
-  constructor(private readonly usuariosService: UsuariosService) {}
+  constructor(
+    private readonly usuariosService: UsuariosService,
+    private readonly empresasService: EmpresasService,
+  ) {}
 
   /**
    * Devuelve settings del usuario, rellenando con defaults cualquier clave faltante.
@@ -30,10 +34,15 @@ export class SettingsService {
     return merged;
   }
 
-  /** Devuelve campos de perfil (columnas SQL, no JSONB). */
+  /** Devuelve campos de perfil (columnas SQL, no JSONB). Incluye nombre de empresa si rol=empresa. */
   async getProfile(userId: string) {
     const { id, nombre, apellidos, correo, rol } = await this.usuariosService.findById(userId);
-    return { id, nombre, apellidos, correo, rol };
+    let empresaNombre: string | null = null;
+    if (rol === 'empresa') {
+      const empresa = await this.empresasService.findByUserId(userId);
+      empresaNombre = empresa?.nombre ?? null;
+    }
+    return { id, nombre, apellidos, correo, rol, empresaNombre };
   }
 
   private mergeWithDefaults(partial: Partial<UserSettings>): UserSettings {

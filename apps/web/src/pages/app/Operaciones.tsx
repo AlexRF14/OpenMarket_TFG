@@ -160,6 +160,7 @@ export default function Operaciones() {
               <th className="text-left font-medium py-3 px-5">Operación</th>
               <th className="text-left font-medium py-3 px-3">Posición</th>
               <th className="text-left font-medium py-3 px-3">Tipo</th>
+              <th className="text-right font-medium py-3 px-3">Unidades</th>
               <th className="text-right font-medium py-3 px-3">Total</th>
               <th className="text-left font-medium py-3 px-3">Estado</th>
               <th className="text-left font-medium py-3 px-3">Actualizada</th>
@@ -169,6 +170,10 @@ export default function Operaciones() {
           <tbody>
             {filtered.map((o) => {
               const opSide = sideOf(o, profile?.id);
+              const soldUnits = Math.max(0, (o.cantidad ?? 1) - (o.stock ?? 0));
+              const totalPrice = soldUnits > 0
+                ? (parseFloat(o.totalAmount) * soldUnits).toFixed(2)
+                : parseFloat(o.totalAmount).toFixed(2);
               return (
                 <tr
                   key={o.id}
@@ -193,8 +198,16 @@ export default function Operaciones() {
                       {typeLabel(o.operationType)}
                     </span>
                   </td>
+                  <td className="py-3.5 px-3 text-right tabular-nums text-ink/70">
+                    {soldUnits > 0 ? (
+                      <span className="font-medium">{soldUnits} ud.</span>
+                    ) : (
+                      <span className="text-ink/35">—</span>
+                    )}
+                  </td>
                   <td className="py-3.5 px-3 text-right tabular-nums font-medium">
-                    {o.totalAmount} {o.currency}
+                    {totalPrice} {o.currency}
+                    {soldUnits === 0 && <span className="text-[11px] text-ink/40 font-normal ml-0.5">/ud</span>}
                   </td>
                   <td className="py-3.5 px-3"><StatusPill s={o.status} /></td>
                   <td className="py-3.5 px-3 text-ink/55 text-[13px]">{formatDate(o.updatedAt)}</td>
@@ -204,14 +217,14 @@ export default function Operaciones() {
             })}
             {!loading && filtered.length === 0 && (
               <tr>
-                <td colSpan={7} className="py-16 text-center text-ink/50 text-[14px]">
+                <td colSpan={8} className="py-16 text-center text-ink/50 text-[14px]">
                   {ops.length === 0 ? 'Aún no tienes operaciones.' : 'No hay operaciones con estos filtros.'}
                 </td>
               </tr>
             )}
             {loading && (
               <tr>
-                <td colSpan={7} className="py-16 text-center text-ink/50 text-[14px]">
+                <td colSpan={8} className="py-16 text-center text-ink/50 text-[14px]">
                   Cargando…
                 </td>
               </tr>

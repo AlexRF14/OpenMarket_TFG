@@ -57,10 +57,17 @@ export class PaymentsService {
       returnUrl: this.config.getOrThrow<string>('OPENMARKET_RETURN_URL'),
     });
 
-    empresa.stripeOnboardingUrl = link.url;
+    // Force Spanish locale so the user doesn't need to switch language (changing
+    // language inside the hosted onboarding page triggers a page reload that can
+    // expire the Account Link and close the flow).
+    const linkUrl = new URL(link.url);
+    linkUrl.searchParams.set('locale', 'es-ES');
+    const localizedUrl = linkUrl.toString();
+
+    empresa.stripeOnboardingUrl = localizedUrl;
     await this.empresas.save(empresa);
 
-    return { url: link.url, accountId };
+    return { url: localizedUrl, accountId };
   }
 
   // ---------- Checkout (split) ----------

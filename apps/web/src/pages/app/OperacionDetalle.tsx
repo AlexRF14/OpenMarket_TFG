@@ -489,7 +489,12 @@ export default function OperacionDetalle() {
                   ) : (
                     <>
                       <Row k="Disponibles" v={String(stockRemaining)} />
-                      {isParte && soldUnits > 0 && <Row k="Compradas" v={<span className="font-medium">{soldUnits}</span>} />}
+                      {isParte && soldUnits > 0 && (
+                        <>
+                          <Row k="Compradas" v={<span className="font-medium">{soldUnits}</span>} />
+                          <Row k="Total pagado" v={<span className="font-medium">{(parseFloat(op.totalAmount) * soldUnits).toFixed(2)} {op.currency}</span>} />
+                        </>
+                      )}
                     </>
                   )}
                 </div>

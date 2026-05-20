@@ -128,7 +128,12 @@ export default function Perfil() {
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="font-display text-[26px] tracking-tight">{fullName}</h1>
+              <div>
+                <h1 className="font-display text-[26px] tracking-tight">{fullName}</h1>
+                {perfil.empresaNombre && (
+                  <div className="text-[13.5px] text-ink/60 mt-0.5">{perfil.empresaNombre}</div>
+                )}
+              </div>
               {!isOwn && (
                 <button
                   onClick={startChat}

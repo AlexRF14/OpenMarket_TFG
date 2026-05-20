@@ -4,6 +4,7 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { UsuariosService } from '../usuarios/usuarios.service';
 import { OperacionesService } from '../operaciones/operaciones.service';
+import { EmpresasService } from '../empresas/empresas.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
 import { UpdateBioDto } from './dto/update-bio.dto';
@@ -16,6 +17,7 @@ export class PerfilController {
   constructor(
     private readonly usuarios: UsuariosService,
     private readonly operaciones: OperacionesService,
+    private readonly empresas: EmpresasService,
   ) {}
 
   /**
@@ -49,6 +51,12 @@ export class PerfilController {
     const privacy = s?.['privacy'] as Record<string, unknown> | undefined;
     const publicProfile = privacy?.['public_profile'] === true;
 
+    let empresaNombre: string | null = null;
+    if (user.rol === 'empresa') {
+      const empresa = await this.empresas.findByUserId(id);
+      empresaNombre = empresa?.nombre ?? null;
+    }
+
     if (!publicProfile) {
       return {
         id: user.id,
@@ -57,6 +65,7 @@ export class PerfilController {
         rol: user.rol,
         correo: null,
         bio: null,
+        empresaNombre,
         publicProfile: false,
         operaciones: [],
       };
@@ -70,6 +79,7 @@ export class PerfilController {
       rol: user.rol,
       correo: user.correo,
       bio: user.bio,
+      empresaNombre,
       publicProfile: true,
       operaciones: ops,
     };

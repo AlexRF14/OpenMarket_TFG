@@ -8,6 +8,7 @@ export interface PerfilResponse {
   rol: UserRole;
   correo: string | null;
   bio: string | null;
+  empresaNombre?: string | null;
   publicProfile: boolean;
   operaciones: OperacionDto[];
 }
