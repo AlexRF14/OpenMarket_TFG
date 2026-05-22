@@ -31,6 +31,7 @@ export class ComprasRepository {
   findByOperacion(operacionId: string): Promise<Compra[]> {
     return this.repo.find({
       where: { operacionId, status: Not('pendiente_pago') },
+      relations: ['operacion'],
       order: { createdAt: 'DESC' },
     });
   }
