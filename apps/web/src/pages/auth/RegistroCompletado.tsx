@@ -16,8 +16,8 @@ export default function RegistroCompletado() {
         <h3 className="font-display text-xl mt-4">Bienvenido a OpenMarket</h3>
         <p className="text-sm text-ink/60 mt-1">
           {skipped
-            ? 'Puedes explorar la plataforma. Recuerda completar la verificación con Mollie antes de recibir pagos.'
-            : 'Tu verificación está en curso. Te notificaremos cuando Mollie la apruebe (suele ser < 24 h).'}
+            ? 'Puedes explorar la plataforma. Recuerda completar la verificación con Stripe antes de recibir pagos.'
+            : 'Tu verificación está en curso. Te notificaremos cuando Stripe la apruebe (suele ser < 24 h).'}
         </p>
       </div>
 

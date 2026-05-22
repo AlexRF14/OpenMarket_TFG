@@ -49,7 +49,7 @@ export default function LoginTipo() {
                 {isSignup ? 'Registrarse como empresa' : 'Iniciar como empresa'}
               </div>
               <p className="text-sm text-ink/60 mt-0.5">
-                Incluye perfil corporativo, operaciones B2B y verificación con Mollie.
+                Incluye perfil corporativo, operaciones B2B y verificación con Stripe.
               </p>
             </div>
             <span className="text-ink/30 group-hover:text-terracotta-600 transition">→</span>
