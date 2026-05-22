@@ -20,6 +20,7 @@ export interface CompraResponseDto {
   stripePaymentIntentId: string | null;
   receivedAt: string | null;
   status: string;
+  refundReason: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -71,6 +72,7 @@ export class ComprasService {
       stripePaymentIntentId: compra.stripePaymentIntentId,
       receivedAt: compra.receivedAt?.toISOString() ?? null,
       status: compra.status,
+      refundReason: compra.refundReason ?? null,
       createdAt: compra.createdAt.toISOString(),
       updatedAt: compra.updatedAt.toISOString(),
     };

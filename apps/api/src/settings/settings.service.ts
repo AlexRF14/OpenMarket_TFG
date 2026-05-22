@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import * as JSZip from 'jszip';
 import { UsuariosService } from '../usuarios/usuarios.service';
 import { EmpresasService } from '../empresas/empresas.service';
+import { Operacion } from '../operaciones/entities/operacion.entity';
+import { Compra } from '../compras/entities/compra.entity';
+import { Valoracion } from '../valoraciones/entities/valoracion.entity';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import {
   UserSettings,
@@ -12,6 +18,9 @@ export class SettingsService {
   constructor(
     private readonly usuariosService: UsuariosService,
     private readonly empresasService: EmpresasService,
+    @InjectRepository(Operacion) private readonly operacionRepo: Repository<Operacion>,
+    @InjectRepository(Compra) private readonly compraRepo: Repository<Compra>,
+    @InjectRepository(Valoracion) private readonly valoracionRepo: Repository<Valoracion>,
   ) {}
 
   /**
@@ -43,6 +52,31 @@ export class SettingsService {
       empresaNombre = empresa?.nombre ?? null;
     }
     return { id, nombre, apellidos, correo, rol, empresaNombre };
+  }
+
+  async exportUserData(userId: string): Promise<Buffer> {
+    const [usuario, operaciones, compras, valoraciones] = await Promise.all([
+      this.usuariosService.findById(userId),
+      this.operacionRepo.find({ where: { idVendedor: userId } }),
+      this.compraRepo.find({ where: { compradorId: userId } }),
+      this.valoracionRepo.find({ where: { autorId: userId } }),
+    ]);
+
+    const zip = new JSZip();
+    zip.file('perfil.json', JSON.stringify({
+      id: usuario.id,
+      nombre: usuario.nombre,
+      apellidos: usuario.apellidos,
+      correo: usuario.correo,
+      rol: usuario.rol,
+      bio: usuario.bio,
+      createdAt: usuario.createdAt,
+    }, null, 2));
+    zip.file('operaciones_vendidas.json', JSON.stringify(operaciones, null, 2));
+    zip.file('compras.json', JSON.stringify(compras, null, 2));
+    zip.file('valoraciones.json', JSON.stringify(valoraciones, null, 2));
+
+    return zip.generateAsync({ type: 'nodebuffer' });
   }
 
   private mergeWithDefaults(partial: Partial<UserSettings>): UserSettings {

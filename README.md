@@ -1,6 +1,6 @@
 # OpenMarket — Monorepo
 
-Frontend + Backend de **OpenMarket**, plataforma de marketplace digital (B2B/B2C/C2C) del TFG. Implementa autenticación (JWT + refresh cookie), gestión de empresas con Stripe Connect KYB (onboarding en español), marketplace de operaciones con búsqueda y filtros, carrito de compra, chat en tiempo real (Firestore), pagos split via Stripe Checkout con formulario de datos de entrega (dirección, CP, teléfono, fecha deseada), arquitectura multi-compra (cada pago = ticket independiente, mismo comprador puede comprar varias veces), estados de compra diferenciados ("Enviando" / "Adquirido") con botón de prueba de recepción, reembolsos por compra individual (ventana 14 días), notificaciones email + in-app, imágenes de productos (Cloudinary), valoraciones y comentarios (habilitados al alcanzar estado "Adquirido"), controles avanzados de visibilidad por vendedor, perfil con nombre de empresa para cuentas business, y bloqueo de completado hasta fecha de entrega.
+Frontend + Backend de **OpenMarket**, plataforma de marketplace digital (B2B/B2C/C2C) del TFG. Implementa autenticación (JWT + refresh cookie), gestión de empresas con Stripe Connect KYB (onboarding en español), marketplace de operaciones con búsqueda y filtros, carrito de compra, chat en tiempo real (Firestore), pagos split via Stripe Checkout con formulario de datos de entrega (dirección, CP, teléfono, fecha deseada), arquitectura multi-compra (cada pago = ticket independiente, mismo comprador puede comprar varias veces), estados de compra diferenciados ("Enviando" / "Adquirido") con botón de prueba de recepción, reembolsos diferenciados por tipo de transacción (B2C: directo en 14 días sin explicación; B2B/C2C: flujo de solicitud con motivo → vendedor acepta/rechaza → plataforma revisa si rechaza), notificaciones email + in-app, imágenes de productos (Cloudinary), valoraciones y comentarios (habilitados al alcanzar estado "Adquirido"), controles avanzados de visibilidad por vendedor, perfil con nombre de empresa para cuentas business, y bloqueo de completado hasta fecha de entrega.
 
 ## Stack
 
@@ -11,7 +11,7 @@ Frontend + Backend de **OpenMarket**, plataforma de marketplace digital (B2B/B2C
 - **Imágenes:** Cloudinary (unsigned upload, cloud `dehsoatcf`, preset `cloud_name`)
 - **Pagos:** Stripe Connect Express (split) + Stripe Checkout
 - **Email:** Nodemailer (Gmail SMTP)
-- **Fuentes:** Fraunces (display) + Inter (UI)
+- **Fuentes:** Playfair Display (display) + Inter (UI)
 
 ## Cómo correrlo en local
 
@@ -144,11 +144,11 @@ apps/api/src/
 │  └─ compras.module.ts
 ├─ payments/               # Stripe integration
 │  ├─ stripe.service.ts    # thin Stripe SDK wrapper (quantity support)
-│  ├─ payments.service.ts  # createCheckoutSession, buyOperacion(qty→compra), handleEvent, refundCompra
+│  ├─ payments.service.ts  # createCheckoutSession, buyOperacion(qty→compra), handleEvent, refundCompra, acceptRefund, rejectRefund
 │  ├─ webhook.controller.ts  # POST /webhook (rawBody)
-│  └─ payments.controller.ts # POST /operacion/:id/checkout, POST /compra/:id/refund
+│  └─ payments.controller.ts # POST /operacion/:id/checkout, POST /compra/:id/refund, /accept, /reject
 ├─ notifications/          # Email (nodemailer) + in-app (tabla notificaciones)
-│  ├─ notifications.service.ts  # send(), notifyPurchaseCompleted(), notifyStatusChanged()
+│  ├─ notifications.service.ts  # send(), notifyPurchaseCompleted(), notifyStatusChanged(), notifyRefundRequested(), notifyRefundDecision()
 │  ├─ notificaciones.controller.ts  # GET /notificaciones, PATCH /notificaciones/read-all
 │  └─ notifications.module.ts
 ├─ valoraciones/           # Ratings + comentarios por operación
@@ -188,7 +188,7 @@ apps/api/src/
 | `/app/explorador` | Tabla de mercado + búsqueda + filtros |
 | `/app/operaciones` | Mis ventas (ops) + Mis compras (tickets por compra) |
 | `/app/operaciones/nueva` | Crear operación (con fotos Cloudinary) |
-| `/app/operaciones/:id` | Detalle: valoraciones + comprar + inventario + controles vendedor |
+| `/app/operaciones/:id` | Detalle: valoraciones + comprar + inventario + controles vendedor + gestión reembolsos |
 | `/app/operaciones/:id/editar` | Editar borrador (solo vendedor + pending) |
 | `/app/operaciones/:id?checkout=success\|cancelled` | Banners post-Stripe |
 | `/app/carrito` | Carrito de compra |
@@ -219,9 +219,11 @@ pending (borrador, solo visible al vendedor)
 Derivados de la `Compra` row:
 - **Enviando**: `status=activo` + sin `receivedAt` + `deliveryDate` en el futuro.
 - **Adquirido**: `status=activo` + (`receivedAt` establecido o `deliveryDate` pasada o sin fecha).
-- **Reembolsada**: `status=reembolsada`.
+- **Solicitud de reembolso**: `status=solicitud_reembolso` — B2B/C2C, pendiente de decisión del vendedor.
+- **En revisión**: `status=reembolso_en_revision` — vendedor rechazó, escalado a la plataforma.
+- **Reembolsada**: `status=reembolsada` — reembolso ejecutado en Stripe.
 
-Solo cuando estado = Adquirido el comprador puede dejar valoración. Reembolso disponible 14 días desde `purchasedAt`.
+Solo cuando estado = Adquirido el comprador puede dejar valoración. Reembolso disponible 14 días desde `purchasedAt`. B2C (empresa→cliente): directo sin motivo. B2B/C2C: requiere motivo, el vendedor acepta o rechaza.
 
 ## Categorías de operaciones
 
@@ -279,7 +281,9 @@ Dos grupos de subcategorías. Se almacenan como `varchar(50)` en DB (no enum):
   - Crea fila `compra` con `status=pendiente_pago` antes de la sesión Stripe; guarda `compraId` en metadata.
   - Seller con Stripe Account → split payment. Sin Stripe Account → direct checkout a plataforma.
 - Webhook `checkout.session.completed` → confirma compra (`status=activo`, `purchasedAt`, `stripePaymentIntentId`), decrementa stock × qty, mueve op a `shipped` si `stock === 0`.
-- `POST /api/v1/payments/compra/:id/refund` → reembolso individual por compra (ventana 14 días desde `purchasedAt`), llama `stripe.createRefund`, marca `compra.status=reembolsada`.
+- `POST /api/v1/payments/compra/:id/refund` body `{ reason?: string }` → reembolso por compra (ventana 14 días). **B2C** (vendedor empresa, comprador cliente): directo sin motivo — `stripe.createRefund` → `reembolsada`. **B2B/C2C**: guarda motivo → `solicitud_reembolso`, notifica vendedor.
+- `POST /api/v1/payments/compra/:id/refund/accept` → vendedor acepta — `stripe.createRefund` → `reembolsada`, notifica comprador.
+- `POST /api/v1/payments/compra/:id/refund/reject` → vendedor rechaza → `reembolso_en_revision`, email a admin (`openmarket.tfg@gmail.com`), notifica comprador.
 
 ### Chat (Firestore)
 - `useChat(chatId)` → suscribe a `/chats/:chatId/messages/*`
@@ -301,4 +305,4 @@ stripe listen --forward-to localhost:3001/webhook
 - [ ] Tests: auth flow, checkout session, webhook `checkout.session.completed`, transiciones de estado, flujo compras
 - [ ] Notificaciones push / mensajes de chat (Firebase Cloud Functions)
 - [ ] Panel de administración (gestión de usuarios, operaciones, reportes)
-- [ ] Migración DB `1747600000000-CreateCompras.ts` pendiente de ejecutar manualmente en psql
+- [ ] Panel de administración para gestionar `reembolso_en_revision` (actualmente se notifica por email a `openmarket.tfg@gmail.com`)

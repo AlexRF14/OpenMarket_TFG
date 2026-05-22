@@ -129,6 +129,87 @@ export class NotificationsService {
     }
   }
 
+  async notifyRefundRequested(
+    compra: { id: string; compradorId: string; quantity: number; refundReason: string | null },
+    op: Operacion,
+    sellerUserId: string,
+  ): Promise<void> {
+    const opTitle = op.titulo ?? 'Oferta';
+    const opPath = `/app/operaciones/${op.id}`;
+    const frontendUrl = this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
+
+    void this.createInApp(
+      sellerUserId,
+      'refund_requested',
+      'Solicitud de reembolso',
+      `Un comprador ha solicitado un reembolso para "${opTitle}" (${compra.quantity} ud.).${compra.refundReason ? ` Motivo: ${compra.refundReason}` : ''}`,
+      opPath,
+    ).catch(() => undefined);
+
+    const seller = await this.usuarios.findById(sellerUserId).catch(() => null);
+    if (seller && this.isEmailEnabled(seller)) {
+      await this.send(
+        seller.correo,
+        `⚠️ Solicitud de reembolso — ${opTitle}`,
+        this.tmpl(
+          `Un comprador ha solicitado un reembolso para <strong>${opTitle}</strong>.${compra.refundReason ? `<br><br><em>Motivo: ${compra.refundReason}</em>` : ''}<br><br>Accede a la operación para aceptar o rechazar la solicitud.`,
+          `${frontendUrl}${opPath}`,
+        ),
+      );
+    }
+  }
+
+  async notifyRefundDecision(
+    op: Operacion,
+    buyerUserId: string,
+    accepted: boolean,
+    adminEmail: string,
+    reason: string | null,
+  ): Promise<void> {
+    const opTitle = op.titulo ?? 'Oferta';
+    const opPath = `/app/operaciones/${op.id}`;
+    const frontendUrl = this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
+
+    if (accepted) {
+      void this.createInApp(
+        buyerUserId,
+        'refund_accepted',
+        'Reembolso aprobado',
+        `El vendedor ha aprobado tu solicitud de reembolso para "${opTitle}".`,
+        opPath,
+      ).catch(() => undefined);
+
+      const buyer = await this.usuarios.findById(buyerUserId).catch(() => null);
+      if (buyer && this.isEmailEnabled(buyer)) {
+        await this.send(
+          buyer.correo,
+          `✅ Reembolso aprobado — ${opTitle}`,
+          this.tmpl(
+            `Tu solicitud de reembolso para <strong>${opTitle}</strong> ha sido aprobada. El importe será devuelto a tu método de pago en los próximos días.`,
+            `${frontendUrl}${opPath}`,
+          ),
+        );
+      }
+    } else {
+      void this.createInApp(
+        buyerUserId,
+        'refund_review',
+        'Reembolso en revisión',
+        `El vendedor ha rechazado tu solicitud para "${opTitle}". Nuestro equipo la revisará.`,
+        opPath,
+      ).catch(() => undefined);
+
+      await this.send(
+        adminEmail,
+        `🔍 Reembolso rechazado en revisión — ${opTitle}`,
+        this.tmpl(
+          `El vendedor ha rechazado una solicitud de reembolso para la operación <strong>${opTitle}</strong> (ID: ${op.id}).${reason ? `<br><br><em>Motivo del comprador: ${reason}</em>` : ''}<br><br>Revisar y gestionar manualmente.`,
+          `${frontendUrl}${opPath}`,
+        ),
+      );
+    }
+  }
+
   /** Notifica (email + in-app) a la otra parte cuando cambia el estado de una operación. */
   async notifyStatusChanged(op: Operacion, newStatus: string, initiatorId: string): Promise<void> {
     const otherId = op.idVendedor === initiatorId ? op.idComprador : op.idVendedor;

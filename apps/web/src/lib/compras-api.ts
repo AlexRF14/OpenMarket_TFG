@@ -14,6 +14,14 @@ export function marcarRecibida(id: string): Promise<CompraDto> {
   return api.post<CompraDto>(`/compras/${id}/recibir`, {});
 }
 
-export function refundCompra(id: string): Promise<{ refundId: string }> {
-  return api.post<{ refundId: string }>(`/payments/compra/${id}/refund`, {});
+export function refundCompra(id: string, reason?: string): Promise<{ refundId?: string }> {
+  return api.post<{ refundId?: string }>(`/payments/compra/${id}/refund`, reason ? { reason } : {});
+}
+
+export function acceptRefund(id: string): Promise<{ refundId: string }> {
+  return api.post<{ refundId: string }>(`/payments/compra/${id}/refund/accept`, {});
+}
+
+export function rejectRefund(id: string): Promise<void> {
+  return api.post<void>(`/payments/compra/${id}/refund/reject`, {});
 }

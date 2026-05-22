@@ -4,6 +4,7 @@ import { PaymentsService } from './payments.service';
 import { CreateCheckoutDto } from './dto/create-checkout.dto';
 import { CreateOnboardingDto } from './dto/create-onboarding.dto';
 import { BuyOperacionDto } from './dto/buy-operacion.dto';
+import { RefundRequestDto } from './dto/refund-request.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
 
@@ -48,15 +49,40 @@ export class PaymentsController {
 
   @Post('compra/:id/refund')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Solicitar reembolso de una compra — solo comprador, plazo 14 días' })
-  @ApiResponse({ status: 200, description: '{ refundId }' })
-  @ApiResponse({ status: 400, description: 'Plazo expirado o sin datos de pago' })
-  @ApiResponse({ status: 403, description: 'Solo el comprador puede reembolsar' })
+  @ApiOperation({ summary: 'Solicitar reembolso — B2C: Stripe directo. B2B/C2C: solicitud al vendedor.' })
+  @ApiResponse({ status: 200, description: '{ refundId? }' })
+  @ApiResponse({ status: 400, description: 'Plazo expirado, sin datos de pago, o solicitud ya existente' })
+  @ApiResponse({ status: 403, description: 'Solo el comprador puede solicitar' })
   refundCompra(
     @CurrentUser() user: CurrentUserPayload,
     @Param('id') id: string,
+    @Body() dto: RefundRequestDto,
   ) {
-    return this.payments.refundCompra(id, user.id);
+    return this.payments.refundCompra(id, user.id, dto.reason);
+  }
+
+  @Post('compra/:id/refund/accept')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Vendedor acepta la solicitud — ejecuta reembolso en Stripe' })
+  @ApiResponse({ status: 200, description: '{ refundId }' })
+  @ApiResponse({ status: 403, description: 'Solo el vendedor puede aceptar' })
+  acceptRefund(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') id: string,
+  ) {
+    return this.payments.acceptRefund(id, user.id);
+  }
+
+  @Post('compra/:id/refund/reject')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Vendedor rechaza la solicitud — escala a revisión por plataforma' })
+  @ApiResponse({ status: 204 })
+  @ApiResponse({ status: 403, description: 'Solo el vendedor puede rechazar' })
+  rejectRefund(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') id: string,
+  ) {
+    return this.payments.rejectRefund(id, user.id);
   }
 
   @Get('checkout/:sessionId')

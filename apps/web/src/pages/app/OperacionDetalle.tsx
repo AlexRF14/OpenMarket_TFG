@@ -7,7 +7,7 @@ import { useState, FormEvent, useCallback, useEffect, useRef } from 'react';
 import type { AnyOperationType, CompraDto, DeliveryInfo, OperacionDto, ValoracionDto } from '../../lib/api-types';
 import { categoriaLabel } from '../../lib/api-types';
 import { initiateCheckout } from '../../lib/operaciones-api';
-import { getComprasByOperacion, getMisCompras, marcarRecibida, refundCompra } from '../../lib/compras-api';
+import { getComprasByOperacion, getMisCompras, marcarRecibida, refundCompra, acceptRefund, rejectRefund } from '../../lib/compras-api';
 import { ApiException } from '../../lib/api-client';
 import { CheckoutModal } from '../../components/CheckoutModal';
 
@@ -211,6 +211,9 @@ export default function OperacionDetalle() {
   const [buyerCompra, setBuyerCompra] = useState<CompraDto | null>(null);
   const [compraActionBusy, setCompraActionBusy] = useState(false);
   const [compraError, setCompraError] = useState<string | null>(null);
+  const [showRefundModal, setShowRefundModal] = useState(false);
+  const [refundReason, setRefundReason] = useState('');
+  const [refundActionId, setRefundActionId] = useState<string | null>(null);
 
   // Inline stock edit
   const [stockInput, setStockInput] = useState('');
@@ -263,11 +266,34 @@ export default function OperacionDetalle() {
   }, [buyerCompra]);
 
   const handleRefundCompra = useCallback(async () => {
-    if (!buyerCompra) return;
+    if (!buyerCompra || !op) return;
+    const b2c = !!op.sellerCompanyId && !op.buyerCompanyId && profile?.rol === 'cliente';
+    if (b2c) {
+      setCompraActionBusy(true);
+      setCompraError(null);
+      try {
+        await refundCompra(buyerCompra.id);
+        const list = await getMisCompras(id);
+        setBuyerCompra(list[0] ?? null);
+      } catch (err) {
+        setCompraError(err instanceof ApiException ? err.message : 'Error solicitando reembolso');
+      } finally {
+        setCompraActionBusy(false);
+      }
+    } else {
+      setRefundReason('');
+      setCompraError(null);
+      setShowRefundModal(true);
+    }
+  }, [buyerCompra, op, profile, id]);
+
+  const handleSubmitRefund = useCallback(async () => {
+    if (!buyerCompra || !refundReason.trim()) return;
     setCompraActionBusy(true);
     setCompraError(null);
     try {
-      await refundCompra(buyerCompra.id);
+      await refundCompra(buyerCompra.id, refundReason.trim());
+      setShowRefundModal(false);
       const list = await getMisCompras(id);
       setBuyerCompra(list[0] ?? null);
     } catch (err) {
@@ -275,7 +301,31 @@ export default function OperacionDetalle() {
     } finally {
       setCompraActionBusy(false);
     }
-  }, [buyerCompra, id]);
+  }, [buyerCompra, refundReason, id]);
+
+  const handleAcceptRefund = useCallback(async (compraId: string) => {
+    setRefundActionId(compraId);
+    try {
+      await acceptRefund(compraId);
+      if (id) getComprasByOperacion(id).then(setSellerCompras).catch(() => {});
+    } catch (err) {
+      setCompraError(err instanceof ApiException ? err.message : 'Error aceptando reembolso');
+    } finally {
+      setRefundActionId(null);
+    }
+  }, [id]);
+
+  const handleRejectRefund = useCallback(async (compraId: string) => {
+    setRefundActionId(compraId);
+    try {
+      await rejectRefund(compraId);
+      if (id) getComprasByOperacion(id).then(setSellerCompras).catch(() => {});
+    } catch (err) {
+      setCompraError(err instanceof ApiException ? err.message : 'Error rechazando reembolso');
+    } finally {
+      setRefundActionId(null);
+    }
+  }, [id]);
 
   const saveStock = async () => {
     const s = parseInt(stockInput, 10);
@@ -339,6 +389,7 @@ export default function OperacionDetalle() {
   const buyerIsAdquirido = !!buyerCompra && buyerCompra.status === 'activo' && (!!buyerCompra.receivedAt || buyerDeliveryPassed);
   const canRate = !!profile && buyerIsAdquirido;
   const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
+  const isB2C = !!op.sellerCompanyId && !op.buyerCompanyId && profile?.rol === 'cliente';
   const canRefund = !!buyerCompra
     && buyerCompra.status === 'activo'
     && !!buyerCompra.stripePaymentIntentId
@@ -355,6 +406,39 @@ export default function OperacionDetalle() {
         onClose={() => setShowCheckoutModal(false)}
         onConfirm={handleCheckoutConfirm}
       />
+    )}
+    {showRefundModal && (
+      <div className="fixed inset-0 z-50 bg-ink/60 backdrop-blur-sm flex items-center justify-center p-6">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+          <h2 className="font-display text-xl">Solicitar reembolso</h2>
+          <p className="text-[13.5px] text-ink/65">Explica el motivo de la devolución. El vendedor recibirá esta información y podrá aceptar o rechazar la solicitud.</p>
+          <textarea
+            value={refundReason}
+            onChange={(e) => setRefundReason(e.target.value)}
+            rows={4}
+            maxLength={1000}
+            placeholder="Describe el problema con tu pedido…"
+            className="w-full px-3.5 py-2.5 rounded-xl bg-[#FAF7F1] border border-ink/10 text-[13.5px] outline-none focus:border-terracotta-500 transition resize-none"
+          />
+          {compraError && <div className="text-[12px] text-terracotta-600">{compraError}</div>}
+          <div className="flex gap-3 justify-end">
+            <button
+              onClick={() => setShowRefundModal(false)}
+              disabled={compraActionBusy}
+              className="h-10 px-4 rounded-xl bg-white border border-ink/15 text-[13.5px] font-medium hover:border-ink/30 transition"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleSubmitRefund}
+              disabled={compraActionBusy || !refundReason.trim()}
+              className="h-10 px-4 rounded-xl bg-terracotta-500 text-cream text-[13.5px] font-medium hover:bg-terracotta-600 transition disabled:opacity-60"
+            >
+              {compraActionBusy ? 'Enviando…' : 'Enviar solicitud'}
+            </button>
+          </div>
+        </div>
+      </div>
     )}
     <div className="max-w-[1180px] mx-auto px-8 py-8">
       {/* Draft notice */}
@@ -527,12 +611,25 @@ export default function OperacionDetalle() {
               <div className="flex flex-col items-end gap-1">
                 <button
                   onClick={handleRefundCompra}
-                  disabled={compraActionBusy}
-                  className="h-10 px-4 rounded-xl bg-white border border-terracotta-400 text-terracotta-700 text-[13.5px] font-medium hover:bg-terracotta-50 transition disabled:opacity-60"
+                  className="h-10 px-4 rounded-xl bg-white border border-terracotta-400 text-terracotta-700 text-[13.5px] font-medium hover:bg-terracotta-50 transition"
                 >
-                  {compraActionBusy ? 'Procesando…' : 'Solicitar reembolso'}
+                  Solicitar reembolso
                 </button>
-                {compraError && <span className="text-[11.5px] text-terracotta-600">{compraError}</span>}
+              </div>
+            )}
+            {buyerCompra?.status === 'solicitud_reembolso' && (
+              <div className="px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-[13px]">
+                Solicitud enviada — pendiente de revisión por el vendedor.
+              </div>
+            )}
+            {buyerCompra?.status === 'reembolso_en_revision' && (
+              <div className="px-3 py-2 rounded-xl bg-blue-50 border border-blue-200 text-blue-800 text-[13px]">
+                Reembolso en revisión — nuestro equipo lo gestionará pronto.
+              </div>
+            )}
+            {buyerCompra?.status === 'reembolsada' && (
+              <div className="px-3 py-2 rounded-xl bg-sage-100 border border-sage-400 text-sage-700 text-[13px] font-medium">
+                ✓ Reembolso completado.
               </div>
             )}
           </div>
@@ -680,9 +777,22 @@ export default function OperacionDetalle() {
                     {sellerCompras.map((c) => {
                       const delivDate = c.deliveryInfo?.deliveryDate;
                       const isAdq = !!c.receivedAt || !delivDate || new Date(delivDate) <= new Date();
-                      const statusLabel = c.status === 'reembolsada' ? 'Reembolsada' : isAdq ? 'Adquirido' : 'Enviando';
-                      const statusColor = c.status === 'reembolsada' ? '#4A3F32' : isAdq ? '#2F4D2F' : '#1E4A72';
-                      const statusBg = c.status === 'reembolsada' ? '#F3EEE4' : isAdq ? '#E4EAE1' : '#E3EFF8';
+                      const statusLabel =
+                        c.status === 'reembolsada' ? 'Reembolsada' :
+                        c.status === 'solicitud_reembolso' ? 'Solicitud reembolso' :
+                        c.status === 'reembolso_en_revision' ? 'En revisión' :
+                        isAdq ? 'Adquirido' : 'Enviando';
+                      const statusColor =
+                        c.status === 'reembolsada' ? '#4A3F32' :
+                        c.status === 'solicitud_reembolso' ? '#92400E' :
+                        c.status === 'reembolso_en_revision' ? '#1E4A72' :
+                        isAdq ? '#2F4D2F' : '#1E4A72';
+                      const statusBg =
+                        c.status === 'reembolsada' ? '#F3EEE4' :
+                        c.status === 'solicitud_reembolso' ? '#FEF3C7' :
+                        c.status === 'reembolso_en_revision' ? '#EFF6FF' :
+                        isAdq ? '#E4EAE1' : '#E3EFF8';
+                      const isBusy = refundActionId === c.id;
                       return (
                         <div key={c.id} className="rounded-xl border border-ink/[.08] p-3 text-[12.5px] space-y-1.5">
                           <div className="flex items-center justify-between gap-2">
@@ -697,6 +807,31 @@ export default function OperacionDetalle() {
                             {c.deliveryInfo?.address && <div className="truncate">{c.deliveryInfo.address}, {c.deliveryInfo.postalCode} {c.deliveryInfo.city}</div>}
                             {c.deliveryInfo?.phone && <div>{c.deliveryInfo.phone}</div>}
                           </div>
+                          {c.status === 'solicitud_reembolso' && (
+                            <div className="pt-1 space-y-1.5">
+                              {c.refundReason && (
+                                <div className="text-[12px] text-ink/60 bg-amber-50 rounded-lg px-2.5 py-1.5 italic">
+                                  "{c.refundReason}"
+                                </div>
+                              )}
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => void handleAcceptRefund(c.id)}
+                                  disabled={isBusy}
+                                  className="flex-1 h-8 rounded-lg bg-sage-600 text-cream text-[12px] font-medium hover:opacity-90 transition disabled:opacity-60"
+                                >
+                                  {isBusy ? '…' : 'Aceptar'}
+                                </button>
+                                <button
+                                  onClick={() => void handleRejectRefund(c.id)}
+                                  disabled={isBusy}
+                                  className="flex-1 h-8 rounded-lg bg-white border border-terracotta-400 text-terracotta-700 text-[12px] font-medium hover:bg-terracotta-50 transition disabled:opacity-60"
+                                >
+                                  {isBusy ? '…' : 'Rechazar'}
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       );
                     })}

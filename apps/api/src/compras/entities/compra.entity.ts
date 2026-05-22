@@ -5,7 +5,7 @@ import {
 import { Operacion } from '../../operaciones/entities/operacion.entity';
 import { Usuario } from '../../usuarios/entities/usuario.entity';
 
-export type CompraStatus = 'pendiente_pago' | 'activo' | 'reembolsada';
+export type CompraStatus = 'pendiente_pago' | 'activo' | 'solicitud_reembolso' | 'reembolso_en_revision' | 'reembolsada';
 
 @Entity('compras')
 export class Compra {
@@ -29,6 +29,9 @@ export class Compra {
 
   @Column({ name: 'received_at', type: 'timestamptz', nullable: true, default: null })
   receivedAt!: Date | null;
+
+  @Column({ name: 'refund_reason', type: 'varchar', length: 1000, nullable: true, default: null })
+  refundReason!: string | null;
 
   @Column({ type: 'varchar', length: 20, default: 'pendiente_pago' })
   status!: CompraStatus;

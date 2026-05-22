@@ -1,7 +1,8 @@
 import { useEffect, useState, FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../state/auth';
-import { getSettings, updateSettings, changePassword, changeEmail, type DeepPartial } from '../../lib/settings-api';
-import { ApiException } from '../../lib/api-client';
+import { getSettings, updateSettings, changePassword, changeEmail, deleteAccount, exportData, type DeepPartial } from '../../lib/settings-api';
+import { ApiException, setAccessToken } from '../../lib/api-client';
 import type { UserSettings } from '../../lib/api-types';
 
 function applyAccessibility(a: UserSettings['accessibility']) {
@@ -101,6 +102,7 @@ function InlineForm({
 
 export default function Ajustes() {
   const { name, account, profile, refreshProfile } = useAuth();
+  const navigate = useNavigate();
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -115,6 +117,12 @@ export default function Ajustes() {
   const [emailSubmitting, setEmailSubmitting] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [emailSuccess, setEmailSuccess] = useState<string | null>(null);
+
+  const [exportLoading, setExportLoading] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -179,6 +187,32 @@ export default function Ajustes() {
       setPasswordError(err instanceof ApiException ? err.message : 'Error cambiando contraseña');
     } finally {
       setPasswordSubmitting(false);
+    }
+  };
+
+  const handleExport = async () => {
+    setExportLoading(true);
+    try {
+      await exportData();
+    } catch {
+      setError('No se pudieron descargar los datos. Inténtalo de nuevo.');
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
+  const handleDeleteAccount = async (e: FormEvent) => {
+    e.preventDefault();
+    setDeleteSubmitting(true);
+    setDeleteError(null);
+    try {
+      await deleteAccount(deletePassword);
+      setAccessToken(null);
+      navigate('/login');
+    } catch (err) {
+      setDeleteError(err instanceof ApiException ? err.message : 'Error eliminando cuenta');
+    } finally {
+      setDeleteSubmitting(false);
     }
   };
 
@@ -352,17 +386,66 @@ export default function Ajustes() {
       <section className="rounded-2xl bg-white border border-terracotta-500/20 p-5">
         <h2 className="font-display text-[18px] mb-1 text-terracotta-600">Zona crítica</h2>
         <p className="text-[13px] text-ink/60 mb-3">Acciones irreversibles. Tómate tu tiempo.</p>
-        <div className="flex gap-3">
-          <button className="h-10 px-4 rounded-lg bg-white border border-ink/10 text-[13.5px] hover:border-ink/30" disabled title="Pendiente endpoint RGPD">
-            Exportar mis datos (RGPD)
+        <div className="flex gap-3 flex-wrap">
+          <button
+            onClick={handleExport}
+            disabled={exportLoading}
+            className="h-10 px-4 rounded-lg bg-white border border-ink/10 text-[13.5px] hover:border-ink/30 transition disabled:opacity-60"
+          >
+            {exportLoading ? 'Generando…' : 'Exportar mis datos (RGPD)'}
           </button>
-          <button className="h-10 px-4 rounded-lg bg-terracotta-500 text-cream text-[13.5px] hover:bg-terracotta-600" disabled title="Pendiente endpoint">
+          <button
+            onClick={() => { setShowDeleteModal(true); setDeleteError(null); setDeletePassword(''); }}
+            className="h-10 px-4 rounded-lg bg-terracotta-500 text-cream text-[13.5px] hover:bg-terracotta-600 transition"
+          >
             Eliminar cuenta
           </button>
         </div>
       </section>
 
       <div className="h-16" />
+
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-ink/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+            <h3 className="font-display text-[20px] mb-1">Eliminar cuenta</h3>
+            <p className="text-[13px] text-ink/60 mb-4">
+              Tu cuenta quedará anonimizada. Tus operaciones y mensajes se mantienen para otros usuarios.
+              Esta acción no se puede deshacer.
+            </p>
+            <form onSubmit={handleDeleteAccount} className="space-y-3">
+              <div>
+                <label className="block text-[12px] text-ink/55 mb-1">Contraseña actual</label>
+                <input
+                  type="password"
+                  value={deletePassword}
+                  onChange={(e) => setDeletePassword(e.target.value)}
+                  required
+                  placeholder="••••••••"
+                  className="w-full h-9 px-3 rounded-lg border border-ink/10 bg-white text-[13.5px] outline-none focus:border-terracotta-500"
+                />
+              </div>
+              {deleteError && <div className="text-[12.5px] text-terracotta-600">{deleteError}</div>}
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="submit"
+                  disabled={deleteSubmitting}
+                  className="h-9 px-4 rounded-lg bg-terracotta-500 text-cream text-[13px] font-medium hover:bg-terracotta-600 transition disabled:opacity-60"
+                >
+                  {deleteSubmitting ? 'Eliminando…' : 'Confirmar eliminación'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteModal(false)}
+                  className="h-9 px-4 rounded-lg border border-ink/10 text-[13px] hover:border-ink/30 transition"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

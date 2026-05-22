@@ -95,6 +95,8 @@ export default function Operaciones() {
   const [side, setSide] = useState<'comprando' | 'vendiendo'>('vendiendo');
   const [actionBusy, setActionBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [refundModalId, setRefundModalId] = useState<string | null>(null);
+  const [refundReason, setRefundReason] = useState('');
 
   const loadCompras = useCallback(async () => {
     setComprasLoading(true);
@@ -152,11 +154,19 @@ export default function Operaciones() {
     }
   };
 
-  const handleRefund = async (compraId: string) => {
-    setActionBusy(compraId);
+  const handleRefund = (compraId: string) => {
+    setRefundReason('');
+    setActionError(null);
+    setRefundModalId(compraId);
+  };
+
+  const handleSubmitRefund = async () => {
+    if (!refundModalId || !refundReason.trim()) return;
+    setActionBusy(refundModalId);
     setActionError(null);
     try {
-      await refundCompra(compraId);
+      await refundCompra(refundModalId, refundReason.trim());
+      setRefundModalId(null);
       await loadCompras();
     } catch (e) {
       setActionError(e instanceof ApiException ? e.message : 'Error solicitando reembolso');
@@ -177,6 +187,40 @@ export default function Operaciones() {
   }), [compras]);
 
   return (
+    <>
+    {refundModalId && (
+      <div className="fixed inset-0 z-50 bg-ink/60 backdrop-blur-sm flex items-center justify-center p-6">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+          <h2 className="font-display text-xl">Solicitar reembolso</h2>
+          <p className="text-[13.5px] text-ink/65">Explica el motivo de la devolución. El vendedor recibirá esta información y podrá aceptar o rechazar la solicitud.</p>
+          <textarea
+            value={refundReason}
+            onChange={(e) => setRefundReason(e.target.value)}
+            rows={4}
+            maxLength={1000}
+            placeholder="Describe el problema con tu pedido…"
+            className="w-full px-3.5 py-2.5 rounded-xl bg-[#FAF7F1] border border-ink/10 text-[13.5px] outline-none focus:border-terracotta-500 transition resize-none"
+          />
+          {actionError && <div className="text-[12px] text-terracotta-600">{actionError}</div>}
+          <div className="flex gap-3 justify-end">
+            <button
+              onClick={() => setRefundModalId(null)}
+              disabled={!!actionBusy}
+              className="h-10 px-4 rounded-xl bg-white border border-ink/15 text-[13.5px] font-medium hover:border-ink/30 transition"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={() => void handleSubmitRefund()}
+              disabled={!!actionBusy || !refundReason.trim()}
+              className="h-10 px-4 rounded-xl bg-terracotta-500 text-cream text-[13.5px] font-medium hover:bg-terracotta-600 transition disabled:opacity-60"
+            >
+              {actionBusy ? 'Enviando…' : 'Enviar solicitud'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
     <div className="max-w-[1180px] mx-auto px-8 py-10">
       <div className="flex items-start justify-between mb-8">
         <div>
@@ -439,6 +483,7 @@ export default function Operaciones() {
         </>
       )}
     </div>
+    </>
   );
 }
 

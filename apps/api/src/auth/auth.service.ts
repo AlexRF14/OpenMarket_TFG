@@ -274,6 +274,24 @@ export class AuthService {
     return { message: 'Correo actualizado' };
   }
 
+  async deleteAccount(userId: string, password: string, res: Response): Promise<void> {
+    const usuario = await this.usuariosService.findById(userId);
+    if (usuario.contrasenaHash) {
+      const valid = await bcrypt.compare(password, usuario.contrasenaHash);
+      if (!valid) throw new UnauthorizedException('Contraseña incorrecta');
+    }
+    await this.usuariosService.save({
+      id: userId,
+      correo: `deleted_${userId}@deleted.invalid`,
+      nombre: 'Usuario',
+      apellidos: 'eliminado',
+      bio: null,
+      isActive: false,
+      deletedAt: new Date(),
+    });
+    this.logout(res);
+  }
+
   logout(res: Response) {
     res.clearCookie(REFRESH_COOKIE_NAME, { path: '/api/v1/auth' });
     return { message: 'Sesión cerrada' };

@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Patch, Body, UseGuards, StreamableFile } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { SettingsService } from './settings.service';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
@@ -34,5 +34,16 @@ export class SettingsController {
   @ApiResponse({ status: 200, description: 'Campos de perfil de la tabla usuarios' })
   getProfile(@CurrentUser() user: CurrentUserPayload) {
     return this.settingsService.getProfile(user.id);
+  }
+
+  @Get('export')
+  @ApiOperation({ summary: 'Exportar datos personales en ZIP (RGPD)' })
+  @ApiResponse({ status: 200, description: 'ZIP con perfil, operaciones, compras y valoraciones' })
+  async exportData(@CurrentUser() user: CurrentUserPayload): Promise<StreamableFile> {
+    const buffer = await this.settingsService.exportUserData(user.id);
+    return new StreamableFile(buffer, {
+      type: 'application/zip',
+      disposition: 'attachment; filename="mis-datos-openmarket.zip"',
+    });
   }
 }

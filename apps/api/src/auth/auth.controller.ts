@@ -1,5 +1,5 @@
 import {
-  Controller, Post, Get, Patch, Body, Res, UseGuards, HttpCode, HttpStatus,
+  Controller, Post, Get, Patch, Delete, Body, Res, UseGuards, HttpCode, HttpStatus,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiCookieAuth } from '@nestjs/swagger';
 import { Response } from 'express';
@@ -13,6 +13,7 @@ import { ActivateMfaDto } from './dto/activate-mfa.dto';
 import { DeactivateMfaDto } from './dto/deactivate-mfa.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { ChangeEmailDto } from './dto/change-email.dto';
+import { DeleteAccountDto } from './dto/delete-account.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { JwtRefreshGuard } from '../common/guards/jwt-refresh.guard';
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
@@ -122,6 +123,21 @@ export class AuthController {
   @ApiResponse({ status: 409, description: 'Correo ya en uso' })
   changeEmail(@CurrentUser() user: CurrentUserPayload, @Body() dto: ChangeEmailDto) {
     return this.authService.changeEmail(user.id, dto.newEmail, dto.currentPassword);
+  }
+
+  @Delete('account')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Eliminar cuenta — anonimiza PII y cierra sesión' })
+  @ApiResponse({ status: 204 })
+  @ApiResponse({ status: 401, description: 'Contraseña incorrecta' })
+  deleteAccount(
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() dto: DeleteAccountDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return this.authService.deleteAccount(user.id, dto.password, res);
   }
 
   @Post('logout')

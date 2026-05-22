@@ -8,6 +8,7 @@ import { OperacionesService } from '../operaciones/operaciones.service';
 import { ComprasService } from '../compras/compras.service';
 import { CreateCheckoutDto } from './dto/create-checkout.dto';
 import { NotificationsService } from '../notifications/notifications.service';
+import { UsuariosService } from '../usuarios/usuarios.service';
 
 /**
  * Orquesta Stripe Connect:
@@ -29,6 +30,7 @@ export class PaymentsService {
     private readonly operaciones: OperacionesService,
     private readonly compras: ComprasService,
     private readonly notifications: NotificationsService,
+    private readonly usuarios: UsuariosService,
   ) {}
 
   // ---------- Onboarding ----------
@@ -209,7 +211,7 @@ export class PaymentsService {
     return { checkoutUrl: session.url, sessionId: session.id };
   }
 
-  async refundCompra(compraId: string, requesterId: string): Promise<{ refundId: string }> {
+  async refundCompra(compraId: string, requesterId: string, reason?: string): Promise<{ refundId?: string }> {
     const compra = await this.compras.findById(compraId);
     if (!compra) throw new BadRequestException('Compra no encontrada');
     if (compra.compradorId !== requesterId) {
@@ -217,6 +219,9 @@ export class PaymentsService {
     }
     if (compra.status === 'reembolsada') {
       throw new BadRequestException('Esta compra ya ha sido reembolsada');
+    }
+    if (compra.status === 'solicitud_reembolso' || compra.status === 'reembolso_en_revision') {
+      throw new BadRequestException('Ya existe una solicitud de reembolso para esta compra');
     }
     if (compra.status !== 'activo') {
       throw new BadRequestException('Solo se pueden reembolsar compras completadas');
@@ -233,11 +238,79 @@ export class PaymentsService {
       throw new BadRequestException('El plazo de 14 días para solicitar un reembolso ha expirado');
     }
 
+    const op = await this.operaciones.findById(compra.operacionId);
+    const [seller, buyer] = await Promise.all([
+      this.usuarios.findById(op.idVendedor).catch(() => null),
+      this.usuarios.findById(compra.compradorId).catch(() => null),
+    ]);
+    const isB2C = seller?.rol === 'empresa' && buyer?.rol === 'cliente';
+
+    if (isB2C) {
+      const refund = await this.stripe.createRefund(compra.stripePaymentIntentId);
+      compra.status = 'reembolsada';
+      await this.compras.save(compra);
+      return { refundId: refund.id };
+    }
+
+    if (!reason) {
+      throw new BadRequestException('El motivo es obligatorio para solicitudes de reembolso entre empresas o entre particulares');
+    }
+
+    compra.status = 'solicitud_reembolso';
+    compra.refundReason = reason;
+    await this.compras.save(compra);
+
+    void this.notifications.notifyRefundRequested(
+      { id: compra.id, compradorId: compra.compradorId, quantity: compra.quantity, refundReason: reason },
+      op,
+      op.idVendedor,
+    );
+
+    return {};
+  }
+
+  async acceptRefund(compraId: string, requesterId: string): Promise<{ refundId: string }> {
+    const compra = await this.compras.findById(compraId);
+    if (!compra) throw new BadRequestException('Compra no encontrada');
+    if (compra.status !== 'solicitud_reembolso') {
+      throw new BadRequestException('No hay solicitud de reembolso pendiente para esta compra');
+    }
+
+    const op = await this.operaciones.findById(compra.operacionId);
+    if (op.idVendedor !== requesterId) {
+      throw new ForbiddenException('Solo el vendedor puede aceptar el reembolso');
+    }
+    if (!compra.stripePaymentIntentId) {
+      throw new BadRequestException('No hay datos de pago registrados para esta compra');
+    }
+
     const refund = await this.stripe.createRefund(compra.stripePaymentIntentId);
     compra.status = 'reembolsada';
     await this.compras.save(compra);
 
+    const adminEmail = this.config.get<string>('SMTP_USER') ?? 'openmarket.tfg@gmail.com';
+    void this.notifications.notifyRefundDecision(op, compra.compradorId, true, adminEmail, compra.refundReason);
+
     return { refundId: refund.id };
+  }
+
+  async rejectRefund(compraId: string, requesterId: string): Promise<void> {
+    const compra = await this.compras.findById(compraId);
+    if (!compra) throw new BadRequestException('Compra no encontrada');
+    if (compra.status !== 'solicitud_reembolso') {
+      throw new BadRequestException('No hay solicitud de reembolso pendiente para esta compra');
+    }
+
+    const op = await this.operaciones.findById(compra.operacionId);
+    if (op.idVendedor !== requesterId) {
+      throw new ForbiddenException('Solo el vendedor puede rechazar el reembolso');
+    }
+
+    compra.status = 'reembolso_en_revision';
+    await this.compras.save(compra);
+
+    const adminEmail = this.config.get<string>('SMTP_USER') ?? 'openmarket.tfg@gmail.com';
+    void this.notifications.notifyRefundDecision(op, compra.compradorId, false, adminEmail, compra.refundReason);
   }
 
   async getCheckoutStatus(sessionId: string) {

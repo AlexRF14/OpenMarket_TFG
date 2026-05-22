@@ -208,7 +208,7 @@ export interface CreateOperacionDto {
   images?: string[];
 }
 
-export type CompraStatus = 'pendiente_pago' | 'activo' | 'reembolsada';
+export type CompraStatus = 'pendiente_pago' | 'activo' | 'solicitud_reembolso' | 'reembolso_en_revision' | 'reembolsada';
 
 export interface CompraDto {
   id: string;
@@ -228,6 +228,7 @@ export interface CompraDto {
   stripePaymentIntentId: string | null;
   receivedAt: string | null;
   status: CompraStatus;
+  refundReason: string | null;
   createdAt: string;
   updatedAt: string;
 }
