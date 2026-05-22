@@ -56,6 +56,85 @@ export class OperacionesController {
     return [...map.values()].sort((a, b) => +b.createdAt - +a.createdAt);
   }
 
+  @Get('dashboard')
+  @ApiOperation({ summary: 'KPIs y tendencias de ventas para el vendedor (empresa)' })
+  @ApiResponse({ status: 200 })
+  async getDashboard(
+    @CurrentUser() user: CurrentUserPayload,
+    @Query('from') fromStr?: string,
+    @Query('to') toStr?: string,
+  ) {
+    const toDate = toStr
+      ? new Date(toStr + 'T23:59:59.999Z')
+      : (() => { const d = new Date(); d.setHours(23, 59, 59, 999); return d; })();
+    const fromDate = fromStr
+      ? new Date(fromStr + 'T00:00:00.000Z')
+      : new Date(toDate.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const rows = await this.compraRepo
+      .createQueryBuilder('c')
+      .innerJoin('operaciones', 'o', 'c.operacion_id = o.id')
+      .select('c.quantity', 'quantity')
+      .addSelect('c.purchased_at', 'purchased_at')
+      .addSelect('o.id', 'op_id')
+      .addSelect('o.titulo', 'titulo')
+      .addSelect('o.operation_type', 'operation_type')
+      .addSelect('o.categoria', 'categoria')
+      .addSelect('o.total_amount', 'total_amount')
+      .where('o.id_vendedor = :sid', { sid: user.id })
+      .andWhere("c.status NOT IN ('pendiente_pago', 'reembolsada')")
+      .andWhere('c.purchased_at >= :from', { from: fromDate })
+      .andWhere('c.purchased_at <= :to', { to: toDate })
+      .getRawMany<{
+        quantity: string; purchased_at: string;
+        op_id: string; titulo: string; operation_type: string;
+        categoria: string; total_amount: string;
+      }>();
+
+    const totalVentas = rows.length;
+    const totalUnidades = rows.reduce((s, r) => s + Number(r.quantity), 0);
+    const totalIngresos = rows.reduce((s, r) => s + parseFloat(r.total_amount) * Number(r.quantity), 0);
+
+    const tipoMap = new Map<string, { ventas: number; unidades: number; ingresos: number }>();
+    const catMap = new Map<string, { ventas: number; unidades: number; ingresos: number }>();
+    const mesMap = new Map<string, { ventas: number; ingresos: number }>();
+    const opMap = new Map<string, { titulo: string; tipo: string; ventas: number; unidades: number; ingresos: number }>();
+
+    for (const r of rows) {
+      const revenue = parseFloat(r.total_amount) * Number(r.quantity);
+      const qty = Number(r.quantity);
+
+      const tipo = r.operation_type ?? 'desconocido';
+      const t = tipoMap.get(tipo) ?? { ventas: 0, unidades: 0, ingresos: 0 };
+      tipoMap.set(tipo, { ventas: t.ventas + 1, unidades: t.unidades + qty, ingresos: t.ingresos + revenue });
+
+      const cat = r.categoria ?? 'sin_categoria';
+      const c = catMap.get(cat) ?? { ventas: 0, unidades: 0, ingresos: 0 };
+      catMap.set(cat, { ventas: c.ventas + 1, unidades: c.unidades + qty, ingresos: c.ingresos + revenue });
+
+      const mes = new Date(r.purchased_at).toISOString().slice(0, 7);
+      const m = mesMap.get(mes) ?? { ventas: 0, ingresos: 0 };
+      mesMap.set(mes, { ventas: m.ventas + 1, ingresos: m.ingresos + revenue });
+
+      const op = opMap.get(r.op_id) ?? { titulo: r.titulo ?? r.op_id.slice(0, 8), tipo, ventas: 0, unidades: 0, ingresos: 0 };
+      opMap.set(r.op_id, { ...op, ventas: op.ventas + 1, unidades: op.unidades + qty, ingresos: op.ingresos + revenue });
+    }
+
+    return {
+      period: { from: fromDate.toISOString().slice(0, 10), to: toDate.toISOString().slice(0, 10) },
+      kpis: {
+        totalVentas,
+        totalUnidades,
+        totalIngresos: totalIngresos.toFixed(2),
+        avgTicket: totalVentas > 0 ? (totalIngresos / totalVentas).toFixed(2) : '0.00',
+      },
+      porTipo: Array.from(tipoMap.entries()).map(([tipo, d]) => ({ tipo, ...d, ingresos: d.ingresos.toFixed(2) })),
+      porCategoria: Array.from(catMap.entries()).map(([categoria, d]) => ({ categoria, ...d, ingresos: d.ingresos.toFixed(2) })),
+      evolucionMensual: Array.from(mesMap.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([mes, d]) => ({ mes, ventas: d.ventas, ingresos: d.ingresos.toFixed(2) })),
+      topOperaciones: Array.from(opMap.entries()).sort(([, a], [, b]) => b.ingresos - a.ingresos).slice(0, 5).map(([id, d]) => ({ id, ...d, ingresos: d.ingresos.toFixed(2) })),
+    };
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Detalle de una operación' })
   @ApiResponse({ status: 200 })
@@ -157,9 +236,7 @@ export class OperacionesController {
       const forceByBuyer = dto.force === true && isBuyer;
 
       if (!forceByBuyer) {
-        // Solo el vendedor puede marcar como completado normalmente
         if (!isSeller) throw new ForbiddenException('Solo el vendedor puede marcar como completada');
-        // Bloqueo por fecha de entrega
         const deliveryDate = op.deliveryInfo?.['deliveryDate'] as string | undefined;
         if (deliveryDate && new Date(deliveryDate) > new Date()) {
           throw new BadRequestException(`Fecha de entrega ${deliveryDate} aún no ha llegado`);

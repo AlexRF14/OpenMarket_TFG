@@ -1,6 +1,15 @@
 import { api } from './api-client';
 import type { CreateOperacionDto, DeliveryInfo, OperacionDto, OperacionStatus, UpdateOperacionDto } from './api-types';
 
+export interface DashboardData {
+  period: { from: string; to: string };
+  kpis: { totalVentas: number; totalUnidades: number; totalIngresos: string; avgTicket: string };
+  porTipo: Array<{ tipo: string; ventas: number; unidades: number; ingresos: string }>;
+  porCategoria: Array<{ categoria: string; ventas: number; unidades: number; ingresos: string }>;
+  evolucionMensual: Array<{ mes: string; ventas: number; ingresos: string }>;
+  topOperaciones: Array<{ id: string; titulo: string; tipo: string; ventas: number; unidades: number; ingresos: string }>;
+}
+
 export type OperacionSide = 'comprando' | 'vendiendo';
 
 export function listMine(side?: OperacionSide): Promise<OperacionDto[]> {
@@ -35,6 +44,14 @@ export function updateSettings(id: string, payload: { activa?: boolean; mostrarS
 
 export function requestRefund(id: string): Promise<{ refundId: string }> {
   return api.post<{ refundId: string }>(`/payments/operacion/${id}/refund`, {});
+}
+
+export function getDashboard(from?: string, to?: string): Promise<DashboardData> {
+  const q = new URLSearchParams();
+  if (from) q.set('from', from);
+  if (to) q.set('to', to);
+  const qs = q.toString();
+  return api.get<DashboardData>(`/operaciones/dashboard${qs ? '?' + qs : ''}`);
 }
 
 export function initiateCheckout(
