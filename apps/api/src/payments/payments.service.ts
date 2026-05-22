@@ -390,7 +390,7 @@ export class PaymentsService {
       if (paymentIntentId) op.stripePaymentIntentId = paymentIntentId;
       if (op.stock !== null && op.stock > 0) {
         op.stock = Math.max(0, op.stock - qty);
-        if (op.stock === 0 && op.status === OperacionStatus.CONFIRMED) {
+        if (op.stock === 0 && op.status === OperacionStatus.CONFIRMED && op.operationType !== 'negociada') {
           op.status = OperacionStatus.SHIPPED;
         }
       }

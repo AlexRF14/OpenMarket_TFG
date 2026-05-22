@@ -373,10 +373,10 @@ export default function OperacionDetalle() {
   const opSide = isSeller ? 'vendiendo' : 'comprando';
   const canPublish = isParte && isSeller && op.status === 'pending';
   const canEdit = isParte && isSeller && op.status === 'pending';
-  const canEditStock = isParte && isSeller && ['confirmed', 'shipped'].includes(op.status);
-  const canManageSettings = isParte && isSeller && !['cancelled', 'refunded'].includes(op.status);
+  const canEditStock = isParte && isSeller && op.operationType === 'publica' && ['confirmed', 'shipped'].includes(op.status);
+  const canManageSettings = isParte && isSeller && op.operationType === 'publica' && !['cancelled', 'refunded'].includes(op.status);
   const canCancel = isParte && isSeller && ['pending', 'confirmed'].includes(op.status);
-  const canComplete = isSeller && op.status === 'shipped';
+  const canComplete = isSeller && (op.status === 'shipped' || (op.status === 'confirmed' && op.operationType === 'negociada'));
   const deliveryDateStr = op.deliveryInfo?.deliveryDate ?? null;
   const deliveryDatePassed = !deliveryDateStr || new Date(deliveryDateStr) <= new Date();
   const availableStock = op.stock ?? 1;
@@ -571,7 +571,7 @@ export default function OperacionDetalle() {
                 onClick={() => changeStatus('confirmed')}
                 className="h-10 px-4 rounded-xl bg-sage-600 text-cream text-[13.5px] font-medium hover:opacity-90 transition"
               >
-                Publicar operación
+                {op.operationType === 'negociada' ? 'Confirmar operación' : 'Publicar operación'}
               </button>
             )}
             {canCancel && (

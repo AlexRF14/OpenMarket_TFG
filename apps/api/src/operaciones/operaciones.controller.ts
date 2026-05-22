@@ -114,7 +114,7 @@ export class OperacionesController {
       if (dto.stock === undefined) return op;
       const soldUnits = op.cantidad - op.stock;
       const newCantidad = soldUnits + dto.stock;
-      const newStatus = dto.stock > 0 ? OperacionStatus.CONFIRMED : OperacionStatus.SHIPPED;
+      const newStatus = dto.stock > 0 ? OperacionStatus.CONFIRMED : (op.operationType === 'negociada' ? OperacionStatus.CONFIRMED : OperacionStatus.SHIPPED);
       return this.service.save({ ...op, stock: dto.stock, cantidad: newCantidad, status: newStatus });
     }
 
