@@ -1,6 +1,6 @@
 # OpenMarket — Monorepo
 
-Frontend + Backend de **OpenMarket**, plataforma de marketplace digital (B2B/B2C/C2C) del TFG. Implementa autenticación (JWT + refresh cookie), gestión de empresas con Stripe Connect KYB (onboarding en español), marketplace de operaciones con búsqueda y filtros, carrito de compra, chat en tiempo real (Firestore), pagos split via Stripe Checkout, notificaciones email + in-app, imágenes de productos (Cloudinary), valoraciones y comentarios, controles avanzados de visibilidad por vendedor, y perfil con nombre de empresa para cuentas business.
+Frontend + Backend de **OpenMarket**, plataforma de marketplace digital (B2B/B2C/C2C) del TFG. Implementa autenticación (JWT + refresh cookie), gestión de empresas con Stripe Connect KYB (onboarding en español), marketplace de operaciones con búsqueda y filtros, carrito de compra, chat en tiempo real (Firestore), pagos split via Stripe Checkout con formulario de datos de entrega (dirección, CP, teléfono, fecha deseada), arquitectura multi-compra (cada pago = ticket independiente, mismo comprador puede comprar varias veces), estados de compra diferenciados ("Enviando" / "Adquirido") con botón de prueba de recepción, reembolsos por compra individual (ventana 14 días), notificaciones email + in-app, imágenes de productos (Cloudinary), valoraciones y comentarios (habilitados al alcanzar estado "Adquirido"), controles avanzados de visibilidad por vendedor, perfil con nombre de empresa para cuentas business, y bloqueo de completado hasta fecha de entrega.
 
 ## Stack
 
@@ -94,12 +94,12 @@ apps/web/src/
 ├─ index.css                # Tailwind + accessibility classes (reduce-motion, high-contrast, large-text)
 ├─ lib/
 │  ├─ api-client.ts         # fetch wrapper (auto-401 refresh, credentials: include)
-│  ├─ api-types.ts          # tipos, enums, PRODUCTO_CATS/SERVICIO_CATS, categoriaLabel()
-│  ├─ {auth,operaciones,settings}-api.ts  # domain-specific API calls
+│  ├─ api-types.ts          # tipos, enums, CompraDto/CompraStatus, PRODUCTO_CATS/SERVICIO_CATS, categoriaLabel()
+│  ├─ {auth,operaciones,settings,compras}-api.ts  # domain-specific API calls
 │  └─ firebase.ts           # Firebase Firestore init
 ├─ state/
 │  ├─ auth.tsx              # useAuth() — login, register, MFA, Google
-│  ├─ ops.tsx               # useOperacion(id) — detail + changeStatus
+│  ├─ ops.tsx               # useOperacion(id) — detail + changeStatus + getStatusDisplay()
 │  └─ cart.tsx              # useCart() — localStorage cart por userId (om.cart.<userId>)
 ├─ hooks/
 │  ├─ useChat.ts            # Firestore messages + send
@@ -117,10 +117,10 @@ apps/web/src/
    └─ app/
       ├─ Home.tsx           # grid de últimas ops públicas + filtros (tipo/categoría/precio)
       ├─ Explorador.tsx     # tabla de ops con búsqueda + filtros + paginación
-      ├─ Operaciones.tsx    # mis operaciones: tabla con columna unidades (qty vendida/comprada) + total real
+      ├─ Operaciones.tsx    # Mis ventas (tabla ops) + Mis compras (tabla compras: En curso/Historial)
       ├─ OperacionNueva.tsx # crear op: selector tipo→subcategoría, precio con IVA, fotos
       ├─ OperacionEditar.tsx   # editar borrador (pending): mismo form, datos precargados
-      ├─ OperacionDetalle.tsx  # detalle + valoraciones + comprar + inventario + toggles visibilidad + total pagado
+      ├─ OperacionDetalle.tsx  # detalle + valoraciones + comprar + inventario + compras recibidas (vendedor) + estado Enviando/Adquirido (comprador)
       ├─ Carrito.tsx        # carrito con checkboxes, qty stepper, pago individual/secuencial
       ├─ Chats.tsx
       ├─ Notificaciones.tsx # lista in-app con iconos, timestamps relativos, marcar leídas
@@ -138,11 +138,15 @@ apps/api/src/
 ├─ usuarios/               # Usuario entity + service
 ├─ empresas/               # Empresa entity + Stripe Connect onboarding
 ├─ operaciones/            # Operacion entity + CRUD + findPublic
+├─ compras/                # Compra entity — per-purchase tickets (one row per Stripe payment)
+│  ├─ compras.service.ts   # toDto(), findByComprador(), findByOperacion()
+│  ├─ compras.controller.ts  # GET /compras/mias, GET /compras/operacion/:id, POST /compras/:id/recibir
+│  └─ compras.module.ts
 ├─ payments/               # Stripe integration
 │  ├─ stripe.service.ts    # thin Stripe SDK wrapper (quantity support)
-│  ├─ payments.service.ts  # createCheckoutSession, buyOperacion(qty), handleEvent
+│  ├─ payments.service.ts  # createCheckoutSession, buyOperacion(qty→compra), handleEvent, refundCompra
 │  ├─ webhook.controller.ts  # POST /webhook (rawBody)
-│  └─ payments.controller.ts # POST /operacion/:id/checkout { quantity? }
+│  └─ payments.controller.ts # POST /operacion/:id/checkout, POST /compra/:id/refund
 ├─ notifications/          # Email (nodemailer) + in-app (tabla notificaciones)
 │  ├─ notifications.service.ts  # send(), notifyPurchaseCompleted(), notifyStatusChanged()
 │  ├─ notificaciones.controller.ts  # GET /notificaciones, PATCH /notificaciones/read-all
@@ -182,7 +186,7 @@ apps/api/src/
 |---|---|
 | `/app` | Home: grid ops públicas + filtros |
 | `/app/explorador` | Tabla de mercado + búsqueda + filtros |
-| `/app/operaciones` | Mis operaciones |
+| `/app/operaciones` | Mis ventas (ops) + Mis compras (tickets por compra) |
 | `/app/operaciones/nueva` | Crear operación (con fotos Cloudinary) |
 | `/app/operaciones/:id` | Detalle: valoraciones + comprar + inventario + controles vendedor |
 | `/app/operaciones/:id/editar` | Editar borrador (solo vendedor + pending) |
@@ -204,10 +208,20 @@ pending (borrador, solo visible al vendedor)
 
 - **pending**: el vendedor puede editar, publicar (→ confirmed) o cancelar.
 - **confirmed**: cualquier usuario autenticado puede comprar. Stock decrementa por qty. Si `activa=true` y `stock>0` aparece en Explorador/Home.
-- **shipped**: stock = 0. Oculta en mercado (excepto si `mostrarSinStock=true`). Comprador puede valorar.
-- **completed**: final. El vendedor marca tras entregar. Comprador puede valorar.
+- **shipped**: stock = 0. Oculta en mercado (excepto si `mostrarSinStock=true`).
+- **completed**: final. El vendedor marca tras entregar (bloqueado hasta que pase `deliveryDate`).
+- **cancelled**: el vendedor cancela. Compradores con `compra.status = 'activo'` siguen viendo sus tickets con estado Enviando/Adquirido. La cancelación de la op no afecta a sus compras.
 - Al cambiar estado vía `PATCH /operaciones/:id/status`, `NotificationsService` envía email a la otra parte (si tiene notificaciones email activadas en Ajustes).
 - Editar stock (confirmed/shipped): `PATCH /operaciones/:id` `{ stock }` — actualiza `cantidad` preservando unidades vendidas; stock→0 mueve a `shipped`, stock→>0 vuelve a `confirmed`.
+
+**Estados del comprador (independientes del estado de la op):**
+
+Derivados de la `Compra` row:
+- **Enviando**: `status=activo` + sin `receivedAt` + `deliveryDate` en el futuro.
+- **Adquirido**: `status=activo` + (`receivedAt` establecido o `deliveryDate` pasada o sin fecha).
+- **Reembolsada**: `status=reembolsada`.
+
+Solo cuando estado = Adquirido el comprador puede dejar valoración. Reembolso disponible 14 días desde `purchasedAt`.
 
 ## Categorías de operaciones
 
@@ -261,10 +275,11 @@ Dos grupos de subcategorías. Se almacenan como `varchar(50)` en DB (no enum):
 - `POST /api/v1/operaciones/:id/valoraciones` → crear rating (solo comprador, 1 por operación)
 
 ### Checkout + Pagos
-- `POST /api/v1/payments/operacion/:id/checkout` body `{ quantity?: number }`
-  - Seller con Stripe Account → split payment
-  - Sin Stripe Account → direct checkout a plataforma
-- Webhook `checkout.session.completed` → decrementa stock × qty, registra `idComprador`, mueve a `shipped` si `stock === 0`
+- `POST /api/v1/payments/operacion/:id/checkout` body `{ quantity?: number, deliveryInfo: {...} }`
+  - Crea fila `compra` con `status=pendiente_pago` antes de la sesión Stripe; guarda `compraId` en metadata.
+  - Seller con Stripe Account → split payment. Sin Stripe Account → direct checkout a plataforma.
+- Webhook `checkout.session.completed` → confirma compra (`status=activo`, `purchasedAt`, `stripePaymentIntentId`), decrementa stock × qty, mueve op a `shipped` si `stock === 0`.
+- `POST /api/v1/payments/compra/:id/refund` → reembolso individual por compra (ventana 14 días desde `purchasedAt`), llama `stripe.createRefund`, marca `compra.status=reembolsada`.
 
 ### Chat (Firestore)
 - `useChat(chatId)` → suscribe a `/chats/:chatId/messages/*`
@@ -281,8 +296,9 @@ stripe listen --forward-to localhost:3001/webhook
 ## Próximos pasos
 
 - [ ] Chat room auto-creation en `POST /operaciones` (actualmente es un TODO)
-- [ ] Pago de múltiples items del carrito en una sola sesión (requiere backend multi-item)
+- [ ] Pago de múltiples items del carrito en una sola sesión Stripe (requiere backend multi-item; hoy es secuencial)
 - [ ] Rate limiting en endpoints sensibles (pagos, login)
-- [ ] Tests: auth flow, checkout session, webhook `checkout.session.completed`, transiciones de estado
+- [ ] Tests: auth flow, checkout session, webhook `checkout.session.completed`, transiciones de estado, flujo compras
 - [ ] Notificaciones push / mensajes de chat (Firebase Cloud Functions)
 - [ ] Panel de administración (gestión de usuarios, operaciones, reportes)
+- [ ] Migración DB `1747600000000-CreateCompras.ts` pendiente de ejecutar manualmente en psql

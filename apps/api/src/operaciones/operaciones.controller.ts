@@ -2,6 +2,8 @@ import {
   Controller, Get, Post, Patch, Body, Param, Query, UseGuards,
   ForbiddenException, BadRequestException,
 } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Not, Repository } from 'typeorm';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { OperacionStatus } from '@marketplace/shared-types';
 import { OperacionesService } from './operaciones.service';
@@ -9,6 +11,7 @@ import { CreateOperacionDto } from './dto/create-operacion.dto';
 import { UpdateOperacionDto } from './dto/update-operacion.dto';
 import { UpdateOperacionSettingsDto } from './dto/update-operacion-settings.dto';
 import { UpdateOperacionStatusDto } from './dto/update-operacion-status.dto';
+import { Compra } from '../compras/entities/compra.entity';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -24,6 +27,7 @@ export class OperacionesController {
     private readonly service: OperacionesService,
     private readonly notifications: NotificationsService,
     private readonly valoraciones: ValoracionesService,
+    @InjectRepository(Compra) private readonly compraRepo: Repository<Compra>,
   ) {}
 
   @Get('explorador')
@@ -146,6 +150,23 @@ export class OperacionesController {
     if (op.idComprador !== user.id && op.idVendedor !== user.id) {
       throw new ForbiddenException('No eres parte de esta operación');
     }
+
+    if (dto.status === OperacionStatus.COMPLETED) {
+      const isBuyer = op.idComprador === user.id;
+      const isSeller = op.idVendedor === user.id;
+      const forceByBuyer = dto.force === true && isBuyer;
+
+      if (!forceByBuyer) {
+        // Solo el vendedor puede marcar como completado normalmente
+        if (!isSeller) throw new ForbiddenException('Solo el vendedor puede marcar como completada');
+        // Bloqueo por fecha de entrega
+        const deliveryDate = op.deliveryInfo?.['deliveryDate'] as string | undefined;
+        if (deliveryDate && new Date(deliveryDate) > new Date()) {
+          throw new BadRequestException(`Fecha de entrega ${deliveryDate} aún no ha llegado`);
+        }
+      }
+    }
+
     const updated = await this.service.save({ ...op, status: dto.status });
     void this.notifications.notifyStatusChanged(updated, dto.status, user.id);
     return updated;
@@ -168,8 +189,11 @@ export class OperacionesController {
     @Body() dto: CreateValoracionDto,
   ) {
     const op = await this.service.findById(id);
-    if (op.idComprador !== user.id) throw new ForbiddenException('Solo el comprador puede valorar');
-    if (['pending', 'cancelled', 'refunded'].includes(op.status)) {
+    // Check legacy field first, then compras table (new multi-purchase architecture)
+    const isComprador = op.idComprador === user.id
+      || (await this.compraRepo.count({ where: { operacionId: id, compradorId: user.id, status: Not('pendiente_pago') } })) > 0;
+    if (!isComprador) throw new ForbiddenException('Solo el comprador puede valorar');
+    if (['pending', 'cancelled'].includes(op.status)) {
       throw new BadRequestException('No se puede valorar una operación pendiente o cancelada');
     }
     return this.valoraciones.create(id, user.id, dto);

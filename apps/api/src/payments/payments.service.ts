@@ -5,6 +5,7 @@ import { OperacionStatus, VerifiedStatus } from '@marketplace/shared-types';
 import { StripeService } from './stripe.service';
 import { EmpresasService } from '../empresas/empresas.service';
 import { OperacionesService } from '../operaciones/operaciones.service';
+import { ComprasService } from '../compras/compras.service';
 import { CreateCheckoutDto } from './dto/create-checkout.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -26,6 +27,7 @@ export class PaymentsService {
     private readonly stripe: StripeService,
     private readonly empresas: EmpresasService,
     private readonly operaciones: OperacionesService,
+    private readonly compras: ComprasService,
     private readonly notifications: NotificationsService,
   ) {}
 
@@ -117,7 +119,12 @@ export class PaymentsService {
    * Si el vendedor tiene cuenta Stripe Express → split payment.
    * Si no → pago directo a la plataforma (para pruebas sin Connect).
    */
-  async buyOperacion(opId: string, buyerId: string, quantity = 1): Promise<{ checkoutUrl: string; sessionId: string }> {
+  async buyOperacion(
+    opId: string,
+    buyerId: string,
+    quantity = 1,
+    deliveryInfo?: Record<string, unknown>,
+  ): Promise<{ checkoutUrl: string; sessionId: string }> {
     const op = await this.operaciones.findById(opId);
 
     if (op.idVendedor === buyerId) {
@@ -140,9 +147,24 @@ export class PaymentsService {
     const feePercent = this.config.get<number>('STRIPE_PLATFORM_COMMISSION_PERCENT') ?? 5;
     const applicationFeeCents = Math.round(totalCents * (feePercent / 100));
     const description = op.titulo ?? op.notes ?? `Operación ${op.id.slice(0, 8)}`;
-    const metadata: Record<string, string> = { operacionId: op.id, buyerId, quantity: String(quantity) };
     const successUrl = `${frontendUrl}/app/operaciones/${op.id}?checkout=success`;
     const cancelUrl = `${frontendUrl}/app/operaciones/${op.id}?checkout=cancelled`;
+
+    // Create pending compra record — confirmed by webhook on payment success
+    const compra = await this.compras.save({
+      operacionId: op.id,
+      compradorId: buyerId,
+      quantity,
+      deliveryInfo: deliveryInfo ?? null,
+      status: 'pendiente_pago',
+    });
+
+    const metadata: Record<string, string> = {
+      operacionId: op.id,
+      buyerId,
+      quantity: String(quantity),
+      compraId: compra.id,
+    };
 
     let session: Stripe.Checkout.Session;
 
@@ -176,12 +198,46 @@ export class PaymentsService {
 
     if (!session.url) throw new Error('Stripe no devolvió checkout URL');
 
-    op.idComprador = buyerId;
+    compra.stripeCheckoutSessionId = session.id;
+    await this.compras.save(compra);
+
+    // Keep legacy op fields for backward compat
     op.stripeCheckoutSessionId = session.id;
     op.stripePaymentStatus = session.payment_status;
     await this.operaciones.save(op);
 
     return { checkoutUrl: session.url, sessionId: session.id };
+  }
+
+  async refundCompra(compraId: string, requesterId: string): Promise<{ refundId: string }> {
+    const compra = await this.compras.findById(compraId);
+    if (!compra) throw new BadRequestException('Compra no encontrada');
+    if (compra.compradorId !== requesterId) {
+      throw new ForbiddenException('Solo el comprador puede solicitar un reembolso');
+    }
+    if (compra.status === 'reembolsada') {
+      throw new BadRequestException('Esta compra ya ha sido reembolsada');
+    }
+    if (compra.status !== 'activo') {
+      throw new BadRequestException('Solo se pueden reembolsar compras completadas');
+    }
+    if (!compra.stripePaymentIntentId) {
+      throw new BadRequestException('No hay datos de pago registrados para esta compra');
+    }
+    if (!compra.purchasedAt) {
+      throw new BadRequestException('Fecha de compra no registrada');
+    }
+
+    const daysSince = (Date.now() - compra.purchasedAt.getTime()) / (1000 * 60 * 60 * 24);
+    if (daysSince > 14) {
+      throw new BadRequestException('El plazo de 14 días para solicitar un reembolso ha expirado');
+    }
+
+    const refund = await this.stripe.createRefund(compra.stripePaymentIntentId);
+    compra.status = 'reembolsada';
+    await this.compras.save(compra);
+
+    return { refundId: refund.id };
   }
 
   async getCheckoutStatus(sessionId: string) {
@@ -219,9 +275,19 @@ export class PaymentsService {
 
   private async applyCheckoutEvent(session: Stripe.Checkout.Session): Promise<void> {
     const operacionId = session.metadata?.operacionId ?? null;
+    const compraId = session.metadata?.compraId ?? null;
+
+    // Find the associated compra
+    let compra = compraId
+      ? await this.compras.findById(compraId).catch(() => null)
+      : null;
+    if (!compra) compra = await this.compras.findBySessionId(session.id);
+
+    // Find the operation
     let op = operacionId
       ? await this.operaciones.findById(operacionId).catch(() => null)
       : null;
+    if (!op && compra) op = compra.operacion ?? await this.operaciones.findById(compra.operacionId).catch(() => null);
     if (!op) op = await this.operaciones.findByStripeSessionId(session.id);
     if (!op) {
       this.logger.warn(`Sesión ${session.id} sin Operación asociada`);
@@ -233,20 +299,33 @@ export class PaymentsService {
 
     if (session.payment_status === 'paid') {
       const qty = parseInt(session.metadata?.quantity ?? '1', 10);
-      if (!op.idComprador && session.metadata?.buyerId) op.idComprador = session.metadata.buyerId;
+      const buyerId = session.metadata?.buyerId ?? compra?.compradorId ?? null;
+      const purchasedAt = new Date(session.created * 1000);
+      const paymentIntentId = typeof session.payment_intent === 'string' ? session.payment_intent : null;
+
+      // Update compra record
+      if (compra) {
+        compra.status = 'activo';
+        compra.purchasedAt = purchasedAt;
+        if (paymentIntentId) compra.stripePaymentIntentId = paymentIntentId;
+        await this.compras.save(compra);
+      }
+
+      // Update operation stock and legacy buyer fields
+      if (buyerId && !op.idComprador) op.idComprador = buyerId;
+      op.purchasedAt = purchasedAt;
+      if (paymentIntentId) op.stripePaymentIntentId = paymentIntentId;
       if (op.stock !== null && op.stock > 0) {
         op.stock = Math.max(0, op.stock - qty);
-        // only move to shipped when all stock is sold out
         if (op.stock === 0 && op.status === OperacionStatus.CONFIRMED) {
           op.status = OperacionStatus.SHIPPED;
         }
       }
-    }
-    // on expired/unpaid: keep confirmed so listing stays available
 
-    await this.operaciones.save(op);
-    if (session.payment_status === 'paid') {
+      await this.operaciones.save(op);
       void this.notifications.notifyPurchaseCompleted(op);
+    } else {
+      await this.operaciones.save(op);
     }
   }
 

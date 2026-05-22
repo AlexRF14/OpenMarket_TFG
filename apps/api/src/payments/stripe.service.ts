@@ -141,6 +141,10 @@ export class StripeService {
     return this.client.checkout.sessions.retrieve(sessionId);
   }
 
+  createRefund(paymentIntentId: string): Promise<Stripe.Refund> {
+    return this.client.refunds.create({ payment_intent: paymentIntentId });
+  }
+
   /**
    * Verifica firma del webhook contra `STRIPE_WEBHOOK_SECRET`.
    * Lanza si la firma no coincide — Nest convierte a 400.

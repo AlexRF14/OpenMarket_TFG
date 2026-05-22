@@ -12,6 +12,7 @@ import { OperacionesModule } from './operaciones/operaciones.module';
 import { SettingsModule } from './settings/settings.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { PerfilModule } from './perfil/perfil.module';
+import { ComprasModule } from './compras/compras.module';
 
 // TODO: importar cuando se implementen:
 // import { VerificationModule } from './verification/verification.module';
@@ -47,6 +48,7 @@ import { PerfilModule } from './perfil/perfil.module';
     OperacionesModule,
     SettingsModule,
     PaymentsModule,
+    ComprasModule,
     NotificationsModule,
     PerfilModule,
     ChatModule,

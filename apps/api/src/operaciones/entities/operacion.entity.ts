@@ -83,6 +83,15 @@ export class Operacion {
   @Column({ name: 'mostrar_sin_stock', type: 'boolean', default: false })
   mostrarSinStock!: boolean;
 
+  @Column({ name: 'delivery_info', type: 'jsonb', nullable: true, default: null })
+  deliveryInfo!: Record<string, unknown> | null;
+
+  @Column({ name: 'purchased_at', type: 'timestamptz', nullable: true, default: null })
+  purchasedAt!: Date | null;
+
+  @Column({ name: 'stripe_payment_intent_id', type: 'varchar', length: 100, nullable: true, default: null })
+  stripePaymentIntentId!: string | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 

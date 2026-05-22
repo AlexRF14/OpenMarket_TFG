@@ -1,13 +1,15 @@
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { useOperacion, STATUS_META } from '../../state/ops';
+import { useOperacion, getStatusDisplay } from '../../state/ops';
 import { useAuth } from '../../state/auth';
 import { useCart } from '../../state/cart';
 import { getValoraciones, createValoracion } from '../../lib/valoraciones-api';
 import { useState, FormEvent, useCallback, useEffect, useRef } from 'react';
-import type { AnyOperationType, OperacionDto, OperacionStatus, ValoracionDto } from '../../lib/api-types';
+import type { AnyOperationType, CompraDto, DeliveryInfo, OperacionDto, ValoracionDto } from '../../lib/api-types';
 import { categoriaLabel } from '../../lib/api-types';
 import { initiateCheckout } from '../../lib/operaciones-api';
+import { getComprasByOperacion, getMisCompras, marcarRecibida, refundCompra } from '../../lib/compras-api';
 import { ApiException } from '../../lib/api-client';
+import { CheckoutModal } from '../../components/CheckoutModal';
 
 function typeLabel(t: AnyOperationType): string {
   if (t === 'publica') return 'Pública';
@@ -18,8 +20,8 @@ function typeLabel(t: AnyOperationType): string {
   return t;
 }
 
-function StatusPill({ s }: { s: OperacionStatus }) {
-  const m = STATUS_META[s];
+function StatusPill({ op, userId }: { op: OperacionDto; userId?: string }) {
+  const m = getStatusDisplay(op, userId);
   return (
     <span
       className="inline-flex items-center gap-1.5 px-2.5 h-6 rounded-full text-[11.5px] font-medium"
@@ -204,6 +206,11 @@ export default function OperacionDetalle() {
   const [buying, setBuying] = useState(false);
   const [buyError, setBuyError] = useState<string | null>(null);
   const [qty, setQty] = useState(1);
+  const [showCheckoutModal, setShowCheckoutModal] = useState(false);
+  const [sellerCompras, setSellerCompras] = useState<CompraDto[]>([]);
+  const [buyerCompra, setBuyerCompra] = useState<CompraDto | null>(null);
+  const [compraActionBusy, setCompraActionBusy] = useState(false);
+  const [compraError, setCompraError] = useState<string | null>(null);
 
   // Inline stock edit
   const [stockInput, setStockInput] = useState('');
@@ -216,6 +223,16 @@ export default function OperacionDetalle() {
   useEffect(() => { setQty(1); }, [id]);
   useEffect(() => { if (op) setStockInput(String(op.stock)); }, [op]);
 
+  // Load compras: seller sees all; buyer sees their own
+  useEffect(() => {
+    if (!id || !op || !profile) return;
+    if (op.idVendedor === profile.id) {
+      getComprasByOperacion(id).then(setSellerCompras).catch(() => {});
+    } else {
+      getMisCompras(id).then((list) => setBuyerCompra(list[0] ?? null)).catch(() => {});
+    }
+  }, [id, op, profile]);
+
   const copyLink = useCallback(() => {
     navigator.clipboard.writeText(window.location.href).then(() => {
       setCopied(true);
@@ -223,18 +240,42 @@ export default function OperacionDetalle() {
     });
   }, []);
 
-  const buy = useCallback(async () => {
+  const handleCheckoutConfirm = useCallback(async (deliveryInfo: DeliveryInfo) => {
     if (!id) return;
     setBuying(true);
     setBuyError(null);
-    try {
-      const { checkoutUrl } = await initiateCheckout(id, qty);
-      window.location.href = checkoutUrl;
-    } catch (err) {
-      setBuyError(err instanceof ApiException ? err.message : 'Error iniciando el pago');
-      setBuying(false);
-    }
+    const { checkoutUrl } = await initiateCheckout(id, qty, deliveryInfo);
+    window.location.href = checkoutUrl;
   }, [id, qty]);
+
+  const handleMarcarRecibida = useCallback(async () => {
+    if (!buyerCompra) return;
+    setCompraActionBusy(true);
+    setCompraError(null);
+    try {
+      const updated = await marcarRecibida(buyerCompra.id);
+      setBuyerCompra(updated);
+    } catch (err) {
+      setCompraError(err instanceof ApiException ? err.message : 'Error');
+    } finally {
+      setCompraActionBusy(false);
+    }
+  }, [buyerCompra]);
+
+  const handleRefundCompra = useCallback(async () => {
+    if (!buyerCompra) return;
+    setCompraActionBusy(true);
+    setCompraError(null);
+    try {
+      await refundCompra(buyerCompra.id);
+      const list = await getMisCompras(id);
+      setBuyerCompra(list[0] ?? null);
+    } catch (err) {
+      setCompraError(err instanceof ApiException ? err.message : 'Error solicitando reembolso');
+    } finally {
+      setCompraActionBusy(false);
+    }
+  }, [buyerCompra, id]);
 
   const saveStock = async () => {
     const s = parseInt(stockInput, 10);
@@ -285,12 +326,36 @@ export default function OperacionDetalle() {
   const canEditStock = isParte && isSeller && ['confirmed', 'shipped'].includes(op.status);
   const canManageSettings = isParte && isSeller && !['cancelled', 'refunded'].includes(op.status);
   const canCancel = isParte && isSeller && ['pending', 'confirmed'].includes(op.status);
-  const canComplete = isParte && op.status === 'shipped';
+  const canComplete = isSeller && op.status === 'shipped';
+  const deliveryDateStr = op.deliveryInfo?.deliveryDate ?? null;
+  const deliveryDatePassed = !deliveryDateStr || new Date(deliveryDateStr) <= new Date();
   const availableStock = op.stock ?? 1;
   const canBuy = !!profile && !isSeller && op.status === 'confirmed' && availableStock > 0 && !buying;
-  const canRate = !!profile && op.idComprador === profile.id && !['pending', 'cancelled', 'refunded'].includes(op.status);
+
+  // Buyer compra-based flags
+  const buyerDeliveryDate = buyerCompra?.deliveryInfo?.deliveryDate ?? null;
+  const buyerDeliveryPassed = !buyerDeliveryDate || new Date(buyerDeliveryDate) <= new Date();
+  const buyerIsEnviando = !!buyerCompra && buyerCompra.status === 'activo' && !buyerCompra.receivedAt && !buyerDeliveryPassed;
+  const buyerIsAdquirido = !!buyerCompra && buyerCompra.status === 'activo' && (!!buyerCompra.receivedAt || buyerDeliveryPassed);
+  const canRate = !!profile && buyerIsAdquirido;
+  const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
+  const canRefund = !!buyerCompra
+    && buyerCompra.status === 'activo'
+    && !!buyerCompra.stripePaymentIntentId
+    && !!buyerCompra.purchasedAt
+    && (Date.now() - new Date(buyerCompra.purchasedAt).getTime()) < FOURTEEN_DAYS_MS;
 
   return (
+    <>
+    {showCheckoutModal && (
+      <CheckoutModal
+        op={op}
+        qty={qty}
+        profile={profile}
+        onClose={() => setShowCheckoutModal(false)}
+        onConfirm={handleCheckoutConfirm}
+      />
+    )}
     <div className="max-w-[1180px] mx-auto px-8 py-8">
       {/* Draft notice */}
       {isSeller && op.status === 'pending' && (
@@ -343,7 +408,7 @@ export default function OperacionDetalle() {
             <h1 className="font-display text-[32px] leading-tight tracking-tight truncate">
               {op.titulo ?? op.notes ?? 'Operación'}
             </h1>
-            <StatusPill s={op.status} />
+            <StatusPill op={op} userId={profile?.id} />
           </div>
           <div className="mt-2 text-[14px] text-ink/65 flex flex-wrap gap-x-5 gap-y-1">
             {op.categoria && <span>Categoría: <span className="text-ink/80">{categoriaLabel(op.categoria)}</span></span>}
@@ -397,7 +462,7 @@ export default function OperacionDetalle() {
                   {inCart(op.id) ? '✓ En carrito' : 'Añadir al carrito'}
                 </button>
                 <button
-                  onClick={buy}
+                  onClick={() => setShowCheckoutModal(true)}
                   disabled={buying}
                   className="h-11 px-6 rounded-xl bg-terracotta-500 text-cream text-[14px] font-medium hover:bg-terracotta-600 transition disabled:opacity-60 shadow-sm"
                 >
@@ -434,12 +499,41 @@ export default function OperacionDetalle() {
               </button>
             )}
             {canComplete && (
+              <div className="flex flex-col items-end gap-1">
+                <button
+                  onClick={() => changeStatus('completed')}
+                  disabled={!deliveryDatePassed}
+                  title={!deliveryDatePassed ? `Fecha de entrega: ${deliveryDateStr}` : undefined}
+                  className="h-10 px-4 rounded-xl bg-ink text-cream text-[13.5px] font-medium hover:bg-terracotta-600 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Marcar completada
+                </button>
+                {!deliveryDatePassed && (
+                  <span className="text-[11.5px] text-ink/50">Entrega prevista: {deliveryDateStr}</span>
+                )}
+              </div>
+            )}
+            {buyerIsEnviando && (
               <button
-                onClick={() => changeStatus('completed')}
-                className="h-10 px-4 rounded-xl bg-ink text-cream text-[13.5px] font-medium hover:bg-terracotta-600 transition"
+                onClick={handleMarcarRecibida}
+                disabled={compraActionBusy}
+                className="h-10 px-4 rounded-xl bg-amber-500 text-white text-[13.5px] font-medium hover:bg-amber-600 transition disabled:opacity-60"
+                title="Solo para demos: simula que el paquete llegó"
               >
-                Marcar completada
+                {compraActionBusy ? '…' : '🧪 Test: Marcar recibido'}
               </button>
+            )}
+            {canRefund && (
+              <div className="flex flex-col items-end gap-1">
+                <button
+                  onClick={handleRefundCompra}
+                  disabled={compraActionBusy}
+                  className="h-10 px-4 rounded-xl bg-white border border-terracotta-400 text-terracotta-700 text-[13.5px] font-medium hover:bg-terracotta-50 transition disabled:opacity-60"
+                >
+                  {compraActionBusy ? 'Procesando…' : 'Solicitar reembolso'}
+                </button>
+                {compraError && <span className="text-[11.5px] text-terracotta-600">{compraError}</span>}
+              </div>
             )}
           </div>
         </div>
@@ -493,6 +587,12 @@ export default function OperacionDetalle() {
                         <>
                           <Row k="Compradas" v={<span className="font-medium">{soldUnits}</span>} />
                           <Row k="Total pagado" v={<span className="font-medium">{(parseFloat(op.totalAmount) * soldUnits).toFixed(2)} {op.currency}</span>} />
+                          {op.deliveryInfo?.deliveryDate && (
+                            <Row k="Entrega solicitada" v={<span className={new Date(op.deliveryInfo.deliveryDate) > new Date() ? 'text-amber-600 font-medium' : 'text-sage-700 font-medium'}>{op.deliveryInfo.deliveryDate}</span>} />
+                          )}
+                          {op.deliveryInfo?.address && (
+                            <Row k="Dirección" v={<span className="text-[12px]">{op.deliveryInfo.address}, {op.deliveryInfo.postalCode} {op.deliveryInfo.city}</span>} />
+                          )}
                         </>
                       )}
                     </>
@@ -569,6 +669,40 @@ export default function OperacionDetalle() {
                 <div className="font-medium mb-1">Pago protegido</div>
                 Los pagos se procesan a través de Stripe. Los fondos se transfieren al vendedor tras completar la transacción.
               </div>
+
+              {/* Seller: list of all purchases (tickets) */}
+              {isSeller && sellerCompras.length > 0 && (
+                <div className="rounded-2xl bg-white border border-ink/10 p-5">
+                  <div className="text-[11.5px] uppercase tracking-wider text-ink/50 font-medium mb-3">
+                    Compras recibidas ({sellerCompras.length})
+                  </div>
+                  <div className="space-y-3">
+                    {sellerCompras.map((c) => {
+                      const delivDate = c.deliveryInfo?.deliveryDate;
+                      const isAdq = !!c.receivedAt || !delivDate || new Date(delivDate) <= new Date();
+                      const statusLabel = c.status === 'reembolsada' ? 'Reembolsada' : isAdq ? 'Adquirido' : 'Enviando';
+                      const statusColor = c.status === 'reembolsada' ? '#4A3F32' : isAdq ? '#2F4D2F' : '#1E4A72';
+                      const statusBg = c.status === 'reembolsada' ? '#F3EEE4' : isAdq ? '#E4EAE1' : '#E3EFF8';
+                      return (
+                        <div key={c.id} className="rounded-xl border border-ink/[.08] p-3 text-[12.5px] space-y-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-medium">{c.deliveryInfo?.fullName ?? 'Comprador'}</span>
+                            <span className="px-2 py-0.5 rounded-full text-[11px] font-medium" style={{ background: statusBg, color: statusColor }}>
+                              {statusLabel}
+                            </span>
+                          </div>
+                          <div className="text-ink/55 space-y-0.5">
+                            <div>{c.quantity} ud. · {c.totalPagado} {c.currency}</div>
+                            {delivDate && <div>Entrega: <span className={new Date(delivDate) > new Date() ? 'text-amber-600' : 'text-sage-700'}>{delivDate}</span></div>}
+                            {c.deliveryInfo?.address && <div className="truncate">{c.deliveryInfo.address}, {c.deliveryInfo.postalCode} {c.deliveryInfo.city}</div>}
+                            {c.deliveryInfo?.phone && <div>{c.deliveryInfo.phone}</div>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </aside>
 
             <section className="rounded-2xl bg-[#FAF7F1] border border-ink/10 flex flex-col" style={{ minHeight: 560 }}>
@@ -584,6 +718,7 @@ export default function OperacionDetalle() {
         );
       })()}
     </div>
+    </>
   );
 }
 

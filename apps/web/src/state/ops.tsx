@@ -3,6 +3,8 @@ import * as opsApi from '../lib/operaciones-api';
 import type { CreateOperacionDto, OperacionDto, OperacionStatus, UpdateOperacionDto } from '../lib/api-types';
 import { useAuth } from './auth';
 
+export type StatusDisplay = { label: string; dot: string; bg: string; text: string };
+
 /**
  * Hook para listar operaciones del usuario autenticado.
  * Reemplaza el viejo OpsProvider basado en localStorage.
@@ -81,9 +83,9 @@ export function useOperacion(id: string | undefined) {
     void reload();
   }, [reload]);
 
-  const changeStatus = useCallback(async (status: OperacionStatus) => {
+  const changeStatus = useCallback(async (status: OperacionStatus, force?: boolean) => {
     if (!id) return;
-    const updated = await opsApi.updateStatus(id, status);
+    const updated = await opsApi.updateStatus(id, status, force);
     setOp(updated);
     return updated;
   }, [id]);
@@ -105,7 +107,7 @@ export function useOperacion(id: string | undefined) {
   return { op, loading, error, reload, changeStatus, updateOp, updateSettings };
 }
 
-export const STATUS_META: Record<OperacionStatus, { label: string; dot: string; bg: string; text: string }> = {
+export const STATUS_META: Record<OperacionStatus, StatusDisplay> = {
   pending:    { label: 'Pendiente',  dot: '#CB7350', bg: '#FBF1EC', text: '#97472A' },
   confirmed:  { label: 'Confirmada', dot: '#5C7159', bg: '#E4EAE1', text: '#3E4E3C' },
   shipped:    { label: 'Enviada',    dot: '#B85A36', bg: '#F5DED2', text: '#723524' },
@@ -114,3 +116,38 @@ export const STATUS_META: Record<OperacionStatus, { label: string; dot: string; 
   cancelled:  { label: 'Cancelada',  dot: '#8A8A8A', bg: '#EFEDE8', text: '#555' },
   refunded:   { label: 'Reembolsada', dot: '#6A5B4A', bg: '#F3EEE4', text: '#4A3F32' },
 };
+
+/** Role-aware status label + colours for display components. */
+export function getStatusDisplay(op: OperacionDto, userId?: string): StatusDisplay {
+  const base = STATUS_META[op.status];
+  const isBuyer = !!userId && op.idComprador === userId;
+  const isSeller = !!userId && op.idVendedor === userId;
+
+  if (isBuyer) {
+    // These states don't need remapping for buyer
+    if (op.status === 'refunded' || op.status === 'disputed' || op.status === 'pending') return base;
+
+    // If seller cancelled but buyer already purchased, show delivery-based state
+    if (op.status === 'cancelled' || op.status === 'completed' || op.status === 'confirmed' || op.status === 'shipped') {
+      if (op.status === 'completed') {
+        return { label: 'Adquirido', dot: '#4A7A4A', bg: '#E4EAE1', text: '#2F4D2F' };
+      }
+      const deliveryDate = op.deliveryInfo?.deliveryDate;
+      const pastDelivery = !deliveryDate || new Date(deliveryDate) <= new Date();
+      if (pastDelivery) return { label: 'Adquirido', dot: '#4A7A4A', bg: '#E4EAE1', text: '#2F4D2F' };
+      return { label: 'Enviando', dot: '#3B6FA0', bg: '#E3EFF8', text: '#1E4A72' };
+    }
+    return base;
+  }
+
+  if (isSeller) {
+    if (op.status === 'confirmed') return { ...base, label: 'Público' };
+    if (op.status === 'shipped') return { ...base, label: 'Sin stock' };
+    return base;
+  }
+
+  // Public / neutral view
+  if (op.status === 'confirmed') return { ...base, label: 'Disponible' };
+  if (op.status === 'shipped') return { ...base, label: 'Sin stock' };
+  return base;
+}

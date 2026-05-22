@@ -127,6 +127,17 @@ export function categoriaTipo(c: string | null): 'producto' | 'servicio' | null 
   return null;
 }
 
+export interface DeliveryInfo {
+  fullName: string;
+  email: string;
+  address: string;
+  postalCode: string;
+  city: string;
+  phone: string;
+  deliveryDate: string;
+  notes?: string;
+}
+
 export interface OperacionDto {
   id: string;
   idComprador: string | null;
@@ -146,11 +157,14 @@ export interface OperacionDto {
   currency: string;
   stripeCheckoutSessionId: string | null;
   stripePaymentStatus: string | null;
+  stripePaymentIntentId: string | null;
   chatRoomId: string | null;
   notes: string | null;
   images: string[] | null;
   activa: boolean;
   mostrarSinStock: boolean;
+  deliveryInfo: DeliveryInfo | null;
+  purchasedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -192,6 +206,30 @@ export interface CreateOperacionDto {
   platformFee: string;
   notes?: string | null;
   images?: string[];
+}
+
+export type CompraStatus = 'pendiente_pago' | 'activo' | 'reembolsada';
+
+export interface CompraDto {
+  id: string;
+  operacionId: string;
+  compradorId: string;
+  quantity: number;
+  totalAmount: string;
+  totalPagado: string;
+  currency: string;
+  titulo: string | null;
+  categoria: Categoria | null;
+  images: string[] | null;
+  idVendedor: string;
+  operacionStatus: OperacionStatus;
+  deliveryInfo: DeliveryInfo | null;
+  purchasedAt: string | null;
+  stripePaymentIntentId: string | null;
+  receivedAt: string | null;
+  status: CompraStatus;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ApiError {

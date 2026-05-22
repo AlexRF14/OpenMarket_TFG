@@ -43,7 +43,20 @@ export class PaymentsController {
     @Param('id') id: string,
     @Body() dto: BuyOperacionDto,
   ) {
-    return this.payments.buyOperacion(id, user.id, dto.quantity ?? 1);
+    return this.payments.buyOperacion(id, user.id, dto.quantity ?? 1, dto.deliveryInfo as unknown as Record<string, unknown>);
+  }
+
+  @Post('compra/:id/refund')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Solicitar reembolso de una compra — solo comprador, plazo 14 días' })
+  @ApiResponse({ status: 200, description: '{ refundId }' })
+  @ApiResponse({ status: 400, description: 'Plazo expirado o sin datos de pago' })
+  @ApiResponse({ status: 403, description: 'Solo el comprador puede reembolsar' })
+  refundCompra(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') id: string,
+  ) {
+    return this.payments.refundCompra(id, user.id);
   }
 
   @Get('checkout/:sessionId')

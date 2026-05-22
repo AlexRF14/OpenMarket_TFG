@@ -6,9 +6,10 @@ import { StripeService } from './stripe.service';
 import { EmpresasModule } from '../empresas/empresas.module';
 import { OperacionesModule } from '../operaciones/operaciones.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { ComprasModule } from '../compras/compras.module';
 
 @Module({
-  imports: [EmpresasModule, OperacionesModule, NotificationsModule],
+  imports: [EmpresasModule, OperacionesModule, NotificationsModule, ComprasModule],
   controllers: [PaymentsController, WebhookController],
   providers: [PaymentsService, StripeService],
   exports: [PaymentsService],
