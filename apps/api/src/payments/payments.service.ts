@@ -132,7 +132,7 @@ export class PaymentsService {
     if (op.idVendedor === buyerId) {
       throw new BadRequestException('No puedes comprar tu propia operación');
     }
-    if (op.status !== OperacionStatus.CONFIRMED) {
+    if (op.status !== OperacionStatus.CONFIRMED && !(op.status === OperacionStatus.PENDING && op.operationType === 'negociada')) {
       throw new BadRequestException(`La operación no está disponible para compra (estado: ${op.status})`);
     }
     const availableStock = op.stock ?? Infinity;

@@ -376,11 +376,11 @@ export default function OperacionDetalle() {
   const canEditStock = isParte && isSeller && op.operationType === 'publica' && ['confirmed', 'shipped'].includes(op.status);
   const canManageSettings = isParte && isSeller && op.operationType === 'publica' && !['cancelled', 'refunded'].includes(op.status);
   const canCancel = isParte && isSeller && ['pending', 'confirmed'].includes(op.status);
-  const canComplete = isSeller && (op.status === 'shipped' || (op.status === 'confirmed' && op.operationType === 'negociada'));
+  const canComplete = isSeller && (op.status === 'shipped' || (['confirmed', 'pending'].includes(op.status) && op.operationType === 'negociada'));
   const deliveryDateStr = op.deliveryInfo?.deliveryDate ?? null;
   const deliveryDatePassed = !deliveryDateStr || new Date(deliveryDateStr) <= new Date();
   const availableStock = op.stock ?? 1;
-  const canBuy = !!profile && !isSeller && op.status === 'confirmed' && availableStock > 0 && !buying;
+  const canBuy = !!profile && !isSeller && (op.status === 'confirmed' || (op.operationType === 'negociada' && op.status === 'pending')) && availableStock > 0 && !buying;
 
   // Buyer compra-based flags
   const buyerDeliveryDate = buyerCompra?.deliveryInfo?.deliveryDate ?? null;
