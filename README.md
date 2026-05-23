@@ -1,6 +1,6 @@
 # OpenMarket — Monorepo
 
-Frontend + Backend de **OpenMarket**, plataforma de marketplace digital (B2B/B2C/C2C) del TFG. Implementa autenticación (JWT + refresh cookie), gestión de empresas con Stripe Connect KYB (onboarding en español), marketplace de operaciones con búsqueda y filtros, carrito de compra, chat en tiempo real (Firestore), pagos split via Stripe Checkout con formulario de datos de entrega (dirección, CP, teléfono, fecha deseada), arquitectura multi-compra (cada pago = ticket independiente, mismo comprador puede comprar varias veces), estados de compra diferenciados ("Enviando" / "Adquirido") con botón de prueba de recepción, reembolsos diferenciados por tipo de transacción (B2C: directo en 14 días sin explicación; B2B/C2C: flujo de solicitud con motivo → vendedor acepta/rechaza → plataforma revisa si rechaza), notificaciones email + in-app, imágenes de productos (Cloudinary), valoraciones y comentarios (habilitados al alcanzar estado "Adquirido"), controles avanzados de visibilidad por vendedor, perfil con nombre de empresa para cuentas business, y bloqueo de completado hasta fecha de entrega.
+Frontend + Backend de **OpenMarket**, plataforma de marketplace digital (B2B/B2C/C2C) del TFG. Implementa autenticación (JWT + refresh cookie), gestión de empresas con Stripe Connect KYB (onboarding en español), marketplace de operaciones públicas y negociadas con búsqueda y filtros, carrito de compra, chat en tiempo real (Firestore), pagos split via Stripe Checkout con formulario de datos de entrega, arquitectura multi-compra (cada pago = ticket independiente), estados de compra diferenciados ("Enviando" / "Adquirido"), reembolsos diferenciados (B2C: directo en 14 días; B2B/C2C: solicitud con motivo → vendedor acepta/rechaza → plataforma revisa), cuadro de mandos con KPIs y gráficas exportables a Excel, notificaciones email + in-app, imágenes de productos (Cloudinary), valoraciones y comentarios, controles de visibilidad por vendedor, perfil de vendedor público, y gestión de cuenta (cambiar datos, exportar datos RGPD, eliminar cuenta).
 
 ## Stack
 
@@ -123,9 +123,10 @@ apps/web/src/
       ├─ OperacionDetalle.tsx  # detalle + valoraciones + comprar + inventario + compras recibidas (vendedor) + estado Enviando/Adquirido (comprador)
       ├─ Carrito.tsx        # carrito con checkboxes, qty stepper, pago individual/secuencial
       ├─ Chats.tsx
+      ├─ CuadroMandos.tsx   # KPIs + gráficas (Recharts) + export XLSX; solo vendedores
       ├─ Notificaciones.tsx # lista in-app con iconos, timestamps relativos, marcar leídas
       ├─ Perfil.tsx         # perfil público: nombre responsable + nombre empresa (si empresa)
-      └─ Ajustes.tsx        # settings (email/push/privacy/accessibility + change-email/password + nombre empresa)
+      └─ Ajustes.tsx        # settings (email/push/privacy/accessibility + change-email/password + exportar datos + eliminar cuenta)
 ```
 
 ## Estructura — Backend (apps/api/)
@@ -134,10 +135,10 @@ apps/web/src/
 apps/api/src/
 ├─ main.ts                 # bootstrap NestJS, setGlobalPrefix('api/v1')
 ├─ app.module.ts           # root module
-├─ auth/                   # JWT, login, register, refresh, change-email, change-password
+├─ auth/                   # JWT, login, register, refresh, change-email, change-password, delete-account
 ├─ usuarios/               # Usuario entity + service
 ├─ empresas/               # Empresa entity + Stripe Connect onboarding
-├─ operaciones/            # Operacion entity + CRUD + findPublic
+├─ operaciones/            # Operacion entity + CRUD + findPublic + dashboard endpoint
 ├─ compras/                # Compra entity — per-purchase tickets (one row per Stripe payment)
 │  ├─ compras.service.ts   # toDto(), findByComprador(), findByOperacion()
 │  ├─ compras.controller.ts  # GET /compras/mias, GET /compras/operacion/:id, POST /compras/:id/recibir
@@ -155,7 +156,7 @@ apps/api/src/
 │  ├─ valoraciones.service.ts   # create(), findByOperacion()
 │  └─ valoraciones.module.ts
 ├─ chat/                   # Firestore chat room creation
-├─ settings/               # UserSettings JSONB CRUD
+├─ settings/               # UserSettings JSONB CRUD + export ZIP (JSZip) + delete-account redirect
 ├─ common/
 │  ├─ guards/              # JwtAuthGuard
 │  ├─ decorators/          # @CurrentUser()
@@ -172,10 +173,10 @@ apps/api/src/
 
 | Ruta | Descripción |
 |---|---|
-| `/login` | Landing: email input |
-| `/login/tipo?mode=login\|signup` | Cliente vs Empresa |
-| `/login/credenciales` | Email + contraseña; Google SSO |
-| `/login/verificacion` | Código 6-dígito OTP |
+| `/login` | Landing: botones Iniciar Sesión / Registrarse / Google |
+| `/login/credenciales` | Email + contraseña (login directo, sin selección de tipo) |
+| `/login/tipo?mode=signup` | Selección cliente vs empresa (solo para registro) |
+| `/login/verificacion` | Código 6-dígito OTP (MFA) |
 | `/registro/usuario` | Form cliente |
 | `/registro/empresa` | Form empresa (razón social, NIF, sector) |
 | `/registro/empresa/stripe` | Stripe Account Link (KYB) |
@@ -194,7 +195,8 @@ apps/api/src/
 | `/app/carrito` | Carrito de compra |
 | `/app/chats` | Chat list + conversación |
 | `/app/notificaciones` | Notificaciones in-app |
-| `/app/ajustes` | Settings (email, accesibilidad, cambiar contraseña/email) |
+| `/app/cuadro-mandos` | KPIs + gráficas ventas + export Excel (solo vendedores) |
+| `/app/ajustes` | Settings (email, accesibilidad, cambiar contraseña/email, exportar datos, eliminar cuenta) |
 
 ## Flujo de estados de una Operación
 
@@ -259,6 +261,7 @@ Dos grupos de subcategorías. Se almacenan como `varchar(50)` en DB (no enum):
 - `POST /api/v1/auth/login` → access + cookie
 - `POST /api/v1/auth/refresh` → nuevo access token (auto en 401)
 - `POST /api/v1/auth/change-password` | `PATCH /api/v1/auth/change-email` → con contraseña actual
+- `DELETE /api/v1/auth/account` body `{ password }` → anonimiza PII, sets `deleted_at`, cierra sesión
 
 ### Empresas + Stripe Connect
 - `POST /api/v1/empresas` → crea Empresa (1 por user, 409 si ya existe)
@@ -275,6 +278,11 @@ Dos grupos de subcategorías. Se almacenan como `varchar(50)` en DB (no enum):
 - `PATCH /api/v1/operaciones/:id/status` → solo participantes; dispara email notificación
 - `GET /api/v1/operaciones/:id/valoraciones` → lista de ratings
 - `POST /api/v1/operaciones/:id/valoraciones` → crear rating (solo comprador, 1 por operación)
+- `GET /api/v1/operaciones/dashboard?from=&to=` → KPIs + breakdowns por tipo/categoría/mes + top ops (solo vendedor autenticado)
+
+### Ajustes — exportar y eliminar cuenta
+- `GET /api/v1/settings/export` → ZIP descargable (perfil + operaciones + compras + valoraciones)
+- `DELETE /api/v1/auth/account` → eliminar cuenta (requiere contraseña actual)
 
 ### Checkout + Pagos
 - `POST /api/v1/payments/operacion/:id/checkout` body `{ quantity?: number, deliveryInfo: {...} }`
@@ -306,3 +314,5 @@ stripe listen --forward-to localhost:3001/webhook
 - [ ] Notificaciones push / mensajes de chat (Firebase Cloud Functions)
 - [ ] Panel de administración (gestión de usuarios, operaciones, reportes)
 - [ ] Panel de administración para gestionar `reembolso_en_revision` (actualmente se notifica por email a `openmarket.tfg@gmail.com`)
+- [ ] Cuadro de mandos para compradores (historial de gastos)
+- [ ] Filtros avanzados en cuadro de mandos (por operación individual, por comprador)

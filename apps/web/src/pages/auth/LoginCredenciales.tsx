@@ -1,5 +1,5 @@
 import { FormEvent, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import AuthShell from '../../components/AuthShell';
 import Field from '../../components/Field';
 import Button from '../../components/Button';
@@ -9,8 +9,6 @@ import { ApiException } from '../../lib/api-client';
 
 export default function LoginCredenciales() {
   const nav = useNavigate();
-  const [sp] = useSearchParams();
-  const as = sp.get('as') === 'company' ? 'empresa' : 'usuario';
   const { loginWithCredentials } = useAuth();
 
   const [correo, setCorreo] = useState('');
@@ -39,8 +37,8 @@ export default function LoginCredenciales() {
   return (
     <AuthShell
       title="Iniciar sesión"
-      subtitle={`Entrando como ${as}. Introduce tus credenciales.`}
-      back={{ to: '/login/tipo' }}
+      subtitle="Introduce tus credenciales para entrar."
+      back={{ to: '/login' }}
     >
       <form onSubmit={onSubmit} className="space-y-4">
         <Field

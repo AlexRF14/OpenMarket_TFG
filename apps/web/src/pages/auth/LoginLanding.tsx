@@ -34,7 +34,7 @@ export default function LoginLanding() {
       subtitle="Entra o crea una cuenta para empezar a operar en OpenMarket."
     >
       <div className="space-y-3">
-        <Button full onClick={() => nav('/login/tipo')}>Iniciar Sesión</Button>
+        <Button full onClick={() => nav('/login/credenciales')}>Iniciar Sesión</Button>
         <Button full variant="secondary" onClick={() => nav('/login/tipo?mode=signup')}>Registrarse</Button>
       </div>
 
