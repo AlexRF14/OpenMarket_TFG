@@ -65,10 +65,10 @@ export class OperacionesController {
     @Query('to') toStr?: string,
   ) {
     const toDate = toStr
-      ? new Date(toStr + 'T23:59:59.999Z')
+      ? new Date(toStr + 'T23:59:59.999')
       : (() => { const d = new Date(); d.setHours(23, 59, 59, 999); return d; })();
     const fromDate = fromStr
-      ? new Date(fromStr + 'T00:00:00.000Z')
+      ? new Date(fromStr + 'T00:00:00.000')
       : new Date(toDate.getTime() - 30 * 24 * 60 * 60 * 1000);
 
     const rows = await this.compraRepo

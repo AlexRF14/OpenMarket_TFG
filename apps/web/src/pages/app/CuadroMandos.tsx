@@ -80,10 +80,13 @@ export default function CuadroMandos() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const resolvedFrom = preset !== null
-    ? toYYYYMMDD(new Date(Date.now() - preset * 24 * 60 * 60 * 1000))
-    : customFrom || undefined;
-  const resolvedTo = preset !== null ? today : (customTo || today);
+  const isCustom = preset === -1;
+  const resolvedFrom = isCustom
+    ? (customFrom || undefined)
+    : preset !== null
+      ? toYYYYMMDD(new Date(Date.now() - preset * 24 * 60 * 60 * 1000))
+      : '2000-01-01';
+  const resolvedTo = isCustom ? (customTo || today) : today;
 
   useEffect(() => {
     let cancelled = false;
