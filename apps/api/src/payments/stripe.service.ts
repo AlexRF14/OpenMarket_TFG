@@ -81,6 +81,7 @@ export class StripeService {
     metadata?: Record<string, string>;
     customerEmail?: string;
     quantity?: number;
+    extraLineItems?: { name: string; amountCents: number }[];
   }): Promise<Stripe.Checkout.Session> {
     return this.client.checkout.sessions.create({
       mode: 'payment',
@@ -94,6 +95,7 @@ export class StripeService {
             product_data: { name: params.description },
           },
         },
+        ...this.buildExtraLineItems(params.extraLineItems, params.currency),
       ],
       payment_intent_data: {
         application_fee_amount: params.applicationFeeCents,
@@ -116,6 +118,7 @@ export class StripeService {
     metadata?: Record<string, string>;
     customerEmail?: string;
     quantity?: number;
+    extraLineItems?: { name: string; amountCents: number }[];
   }): Promise<Stripe.Checkout.Session> {
     return this.client.checkout.sessions.create({
       mode: 'payment',
@@ -129,12 +132,28 @@ export class StripeService {
             product_data: { name: params.description },
           },
         },
+        ...this.buildExtraLineItems(params.extraLineItems, params.currency),
       ],
       success_url: params.successUrl,
       cancel_url: params.cancelUrl,
       metadata: params.metadata,
       customer_email: params.customerEmail,
     });
+  }
+
+  private buildExtraLineItems(
+    items: { name: string; amountCents: number }[] | undefined,
+    currency?: string,
+  ): Stripe.Checkout.SessionCreateParams.LineItem[] {
+    if (!items?.length) return [];
+    return items.map((item) => ({
+      quantity: 1,
+      price_data: {
+        currency: currency ?? 'eur',
+        unit_amount: item.amountCents,
+        product_data: { name: item.name },
+      },
+    }));
   }
 
   retrieveCheckoutSession(sessionId: string): Promise<Stripe.Checkout.Session> {

@@ -5,7 +5,7 @@ import { useCart } from '../../state/cart';
 import { getValoraciones, createValoracion } from '../../lib/valoraciones-api';
 import { useState, FormEvent, useCallback, useEffect, useRef } from 'react';
 import type { AnyOperationType, CompraDto, DeliveryInfo, OperacionDto, ValoracionDto } from '../../lib/api-types';
-import { categoriaLabel } from '../../lib/api-types';
+import { categoriaLabel, BUYER_FEE_CENTS } from '../../lib/api-types';
 import { initiateCheckout } from '../../lib/operaciones-api';
 import { getComprasByOperacion, getMisCompras, marcarRecibida, refundCompra, acceptRefund, rejectRefund } from '../../lib/compras-api';
 import { ApiException } from '../../lib/api-client';
@@ -550,7 +550,7 @@ export default function OperacionDetalle() {
                   disabled={buying}
                   className="h-11 px-6 rounded-xl bg-terracotta-500 text-cream text-[14px] font-medium hover:bg-terracotta-600 transition disabled:opacity-60 shadow-sm"
                 >
-                  {buying ? 'Redirigiendo…' : `Comprar ${qty > 1 ? `${qty}×` : 'ahora'} — ${(parseFloat(op.totalAmount) * qty).toFixed(2)} ${op.currency}`}
+                  {buying ? 'Redirigiendo…' : `Comprar ${qty > 1 ? `${qty}×` : 'ahora'} — ${(parseFloat(op.totalAmount) * qty + BUYER_FEE_CENTS / 100).toFixed(2)} ${op.currency}`}
                 </button>
               </div>
               {buyError && <span className="text-[12px] text-terracotta-600">{buyError}</span>}

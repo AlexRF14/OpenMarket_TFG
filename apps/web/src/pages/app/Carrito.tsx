@@ -1,17 +1,20 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useCart } from '../../state/cart';
+import { useCart, CartItem } from '../../state/cart';
+import { useAuth } from '../../state/auth';
 import { initiateCheckout } from '../../lib/operaciones-api';
-import { categoriaLabel } from '../../lib/api-types';
-import { ApiException } from '../../lib/api-client';
+import { categoriaLabel, BUYER_FEE_CENTS } from '../../lib/api-types';
+import type { DeliveryInfo } from '../../lib/api-types';
+import { CheckoutModal } from '../../components/CheckoutModal';
+
+const BUYER_FEE = BUYER_FEE_CENTS / 100;
 
 export default function Carrito() {
   const nav = useNavigate();
+  const { profile } = useAuth();
   const { items, removeFromCart, updateQty } = useCart();
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [paying, setPaying] = useState<string | null>(null);
-  const [payingAll, setPayingAll] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [checkoutItem, setCheckoutItem] = useState<CartItem | null>(null);
 
   const toggle = (id: string) =>
     setSelected((s) => {
@@ -26,37 +29,39 @@ export default function Carrito() {
   const selectedItems = items.filter((i) => selected.has(i.operacionId));
   const selectedTotal = selectedItems.reduce((acc, i) => acc + parseFloat(i.totalAmount) * i.qty, 0);
 
-  const payItem = async (operacionId: string, qty: number) => {
-    setPaying(operacionId);
-    setError(null);
-    try {
-      const { checkoutUrl } = await initiateCheckout(operacionId, qty);
-      // Do NOT remove from cart here — only remove on ?checkout=success return
-      window.location.href = checkoutUrl;
-    } catch (err) {
-      setError(err instanceof ApiException ? err.message : 'Error iniciando el pago');
-      setPaying(null);
-    }
+  const payItem = (operacionId: string, qty: number) => {
+    const item = items.find((i) => i.operacionId === operacionId);
+    if (!item) return;
+    setCheckoutItem({ ...item, qty });
   };
 
-  // Pays first selected item and redirects. User returns to pay the rest one by one.
-  // Multi-tab approach is unreliable: browsers block location assignment on opened tabs after await.
-  const paySelected = async () => {
+  // Opens the delivery-info modal for the first selected item. User returns to pay
+  // the rest one by one — browsers block location assignment on opened tabs after await,
+  // so a true multi-item checkout isn't reliable here.
+  const paySelected = () => {
     if (selectedItems.length === 0) return;
-    setPayingAll(true);
-    setError(null);
-    const first = selectedItems[0];
-    try {
-      const { checkoutUrl } = await initiateCheckout(first.operacionId, first.qty);
-      window.location.href = checkoutUrl;
-    } catch (err) {
-      setError(err instanceof ApiException ? err.message : 'Error iniciando el pago');
-      setPayingAll(false);
-    }
+    setCheckoutItem(selectedItems[0]);
+  };
+
+  const handleCheckoutConfirm = async (deliveryInfo: DeliveryInfo) => {
+    if (!checkoutItem) return;
+    const { checkoutUrl } = await initiateCheckout(checkoutItem.operacionId, checkoutItem.qty, deliveryInfo);
+    // Do NOT remove from cart here — only remove on ?checkout=success return
+    window.location.href = checkoutUrl;
   };
 
   return (
     <div className="px-8 py-8 max-w-[1000px] mx-auto">
+      {checkoutItem && (
+        <CheckoutModal
+          op={checkoutItem}
+          qty={checkoutItem.qty}
+          profile={profile}
+          onClose={() => setCheckoutItem(null)}
+          onConfirm={handleCheckoutConfirm}
+        />
+      )}
+
       <div className="flex items-end justify-between mb-6">
         <div>
           <h1 className="font-display text-[32px] tracking-tight">Carrito</h1>
@@ -71,12 +76,6 @@ export default function Carrito() {
           </button>
         )}
       </div>
-
-      {error && (
-        <div className="mb-4 px-4 py-3 rounded-xl bg-terracotta-50 border border-terracotta-200 text-terracotta-700 text-[13px]">
-          {error}
-        </div>
-      )}
 
       {items.length === 0 ? (
         <div className="rounded-2xl bg-white border border-ink/10 p-14 text-center">
@@ -169,10 +168,9 @@ export default function Carrito() {
               <div className="flex flex-col gap-1.5 shrink-0">
                 <button
                   onClick={() => payItem(item.operacionId, item.qty)}
-                  disabled={paying === item.operacionId}
                   className="h-9 px-4 rounded-lg bg-terracotta-500 text-cream text-[13px] font-medium hover:bg-terracotta-600 transition disabled:opacity-60 whitespace-nowrap"
                 >
-                  {paying === item.operacionId ? 'Redirigiendo…' : 'Comprar'}
+                  Comprar
                 </button>
                 <button
                   onClick={() => { removeFromCart(item.operacionId); setSelected((s) => { const n = new Set(s); n.delete(item.operacionId); return n; }); }}
@@ -192,20 +190,20 @@ export default function Carrito() {
                   {selectedItems.length} artículo{selectedItems.length > 1 ? 's' : ''} seleccionado{selectedItems.length > 1 ? 's' : ''}
                 </div>
                 <div className="text-[11.5px] text-ink/40 mt-0.5">
-                  {selectedItems.length > 1 ? `Se procesará primero "${selectedItems[0].titulo}"` : 'Redirige a Stripe'}
+                  {selectedItems.length > 1 ? `Se procesará primero "${selectedItems[0].titulo}"` : 'Datos de entrega y pago'}
+                  {' · +'}{BUYER_FEE.toFixed(2)} {selectedItems[0]?.currency ?? 'EUR'} gastos de gestión
                 </div>
               </div>
               <div className="flex items-center gap-4">
                 <div className="text-right">
                   <div className="text-[11.5px] text-ink/45">Total estimado</div>
-                  <div className="font-display text-[20px]">{selectedTotal.toFixed(2)} {selectedItems[0]?.currency ?? 'EUR'}</div>
+                  <div className="font-display text-[20px]">{(selectedTotal + BUYER_FEE).toFixed(2)} {selectedItems[0]?.currency ?? 'EUR'}</div>
                 </div>
                 <button
                   onClick={paySelected}
-                  disabled={payingAll}
                   className="h-11 px-5 rounded-xl bg-terracotta-500 text-cream text-[14px] font-medium hover:bg-terracotta-600 transition disabled:opacity-60 whitespace-nowrap"
                 >
-                  {payingAll ? 'Redirigiendo…' : selectedItems.length > 1 ? `Pagar primero (1/${selectedItems.length})` : 'Comprar ahora'}
+                  {selectedItems.length > 1 ? `Pagar primero (1/${selectedItems.length})` : 'Comprar ahora'}
                 </button>
               </div>
             </div>

@@ -42,3 +42,6 @@ export enum MfaType {
   TOTP = 'totp',
   SMS = 'sms',
 }
+
+/** Gastos de gestión fijos cobrados al comprador en cada compra, en céntimos. */
+export const BUYER_FEE_CENTS = 25;

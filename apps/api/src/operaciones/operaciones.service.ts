@@ -33,6 +33,11 @@ export class OperacionesService {
     return this.repository.findPublicByVendedor(idVendedor);
   }
 
+  /** Ver `OperacionesRepository.decrementStock` — decremento atómico anti-overselling. */
+  decrementStock(id: string, qty: number): Promise<number | null> {
+    return this.repository.decrementStock(id, qty);
+  }
+
   async save(data: Partial<Operacion>): Promise<Operacion> {
     try {
       return await this.repository.save(data);

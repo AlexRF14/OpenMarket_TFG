@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
-import { OperacionStatus, VerifiedStatus } from '@marketplace/shared-types';
+import { BUYER_FEE_CENTS, OperacionStatus, VerifiedStatus } from '@marketplace/shared-types';
 import { StripeService } from './stripe.service';
 import { EmpresasService } from '../empresas/empresas.service';
 import { OperacionesService } from '../operaciones/operaciones.service';
@@ -147,7 +147,10 @@ export class PaymentsService {
     const pricePerUnitCents = Math.round(parseFloat(op.totalAmount) * 100);
     const totalCents = pricePerUnitCents * quantity;
     const feePercent = this.config.get<number>('STRIPE_PLATFORM_COMMISSION_PERCENT') ?? 5;
-    const applicationFeeCents = Math.round(totalCents * (feePercent / 100));
+    // BUYER_FEE_CENTS se suma a la comisión de la plataforma (no al payout del vendedor):
+    // se cobra al comprador como línea aparte y se retiene íntegro vía application_fee_amount.
+    const applicationFeeCents = Math.round(totalCents * (feePercent / 100)) + BUYER_FEE_CENTS;
+    const extraLineItems = [{ name: 'Gastos de gestión', amountCents: BUYER_FEE_CENTS }];
     const description = op.titulo ?? op.notes ?? `Operación ${op.id.slice(0, 8)}`;
     const successUrl = `${frontendUrl}/app/operaciones/${op.id}?checkout=success`;
     const cancelUrl = `${frontendUrl}/app/operaciones/${op.id}?checkout=cancelled`;
@@ -185,6 +188,7 @@ export class PaymentsService {
         cancelUrl,
         metadata,
         quantity,
+        extraLineItems,
       });
     } else {
       session = await this.stripe.createDirectCheckoutSession({
@@ -195,6 +199,7 @@ export class PaymentsService {
         cancelUrl,
         metadata,
         quantity,
+        extraLineItems,
       });
     }
 
@@ -376,6 +381,42 @@ export class PaymentsService {
       const purchasedAt = new Date(session.created * 1000);
       const paymentIntentId = typeof session.payment_intent === 'string' ? session.payment_intent : null;
 
+      // Atomic `UPDATE ... WHERE stock >= qty RETURNING stock` — the only place stock
+      // is ever decremented. Prevents overselling when two buyers pass the (advisory)
+      // check in buyOperacion concurrently and both reach this webhook.
+      let stockReserved = true;
+      if (op.stock !== null) {
+        const remaining = await this.operaciones.decrementStock(op.id, qty);
+        if (remaining === null) {
+          stockReserved = false;
+        } else {
+          op.stock = remaining;
+        }
+      }
+
+      if (!stockReserved) {
+        this.logger.warn(
+          `Overselling evitado: operación ${op.id} sin stock suficiente para ${qty} unidad(es) (compra ${compra?.id ?? session.id}). Reembolsando automáticamente.`,
+        );
+        if (compra) {
+          compra.status = 'reembolsada';
+          compra.purchasedAt = purchasedAt;
+          if (paymentIntentId) compra.stripePaymentIntentId = paymentIntentId;
+          await this.compras.save(compra);
+        }
+        if (paymentIntentId) {
+          try {
+            await this.stripe.createRefund(paymentIntentId);
+          } catch (err) {
+            this.logger.error(
+              `Fallo al reembolsar automáticamente la compra ${compra?.id ?? session.id}: ${(err as Error).message}`,
+            );
+          }
+        }
+        await this.operaciones.save(op);
+        return;
+      }
+
       // Update compra record
       if (compra) {
         compra.status = 'activo';
@@ -384,15 +425,12 @@ export class PaymentsService {
         await this.compras.save(compra);
       }
 
-      // Update operation stock and legacy buyer fields
+      // Update operation buyer fields
       if (buyerId && !op.idComprador) op.idComprador = buyerId;
       op.purchasedAt = purchasedAt;
       if (paymentIntentId) op.stripePaymentIntentId = paymentIntentId;
-      if (op.stock !== null && op.stock > 0) {
-        op.stock = Math.max(0, op.stock - qty);
-        if (op.stock === 0 && op.status === OperacionStatus.CONFIRMED && op.operationType !== 'negociada') {
-          op.status = OperacionStatus.SHIPPED;
-        }
+      if (op.stock === 0 && op.status === OperacionStatus.CONFIRMED && op.operationType !== 'negociada') {
+        op.status = OperacionStatus.SHIPPED;
       }
 
       await this.operaciones.save(op);

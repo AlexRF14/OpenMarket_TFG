@@ -1,8 +1,11 @@
 import { FormEvent, useState } from 'react';
+import { BUYER_FEE_CENTS } from '../lib/api-types';
 import type { DeliveryInfo, OperacionDto, ProfileResponse } from '../lib/api-types';
 
+const BUYER_FEE = BUYER_FEE_CENTS / 100;
+
 interface Props {
-  op: OperacionDto;
+  op: Pick<OperacionDto, 'titulo' | 'currency' | 'totalAmount'>;
   qty: number;
   profile: ProfileResponse | null;
   onClose: () => void;
@@ -38,7 +41,8 @@ export function CheckoutModal({ op, qty, profile, onClose, onConfirm }: Props) {
     }
   };
 
-  const total = (parseFloat(op.totalAmount) * qty).toFixed(2);
+  const subtotal = parseFloat(op.totalAmount) * qty;
+  const total = (subtotal + BUYER_FEE).toFixed(2);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 backdrop-blur-sm px-4">
@@ -110,6 +114,19 @@ export function CheckoutModal({ op, qty, profile, onClose, onConfirm }: Props) {
             <textarea value={form.notes ?? ''} onChange={(e) => set('notes', e.target.value)}
               rows={2} maxLength={500} placeholder="Instrucciones especiales, horario de entrega…"
               className="w-full px-3 py-2 rounded-lg border border-ink/15 text-[13.5px] outline-none focus:border-terracotta-500 transition bg-white resize-none" />
+          </div>
+
+          <div className="flex items-center justify-between text-[12.5px] text-ink/55 pt-1 border-t border-ink/[.07]">
+            <span>Subtotal</span>
+            <span>{subtotal.toFixed(2)} {op.currency}</span>
+          </div>
+          <div className="flex items-center justify-between text-[12.5px] text-ink/55">
+            <span>Gastos de gestión</span>
+            <span>{BUYER_FEE.toFixed(2)} {op.currency}</span>
+          </div>
+          <div className="flex items-center justify-between text-[13.5px] font-medium">
+            <span>Total</span>
+            <span>{total} {op.currency}</span>
           </div>
 
           {error && <div className="text-[12.5px] text-terracotta-600 bg-terracotta-50 px-3 py-2 rounded-lg">{error}</div>}

@@ -2,6 +2,9 @@
 // Espejo manual de los tipos relevantes — eventualmente usar @marketplace/shared-types
 // pero por simplicidad de Vite, replicamos lo mínimo aquí.
 
+/** Gastos de gestión fijos cobrados al comprador en cada compra, en céntimos. Debe coincidir con BUYER_FEE_CENTS en @marketplace/shared-types. */
+export const BUYER_FEE_CENTS = 25;
+
 export type UserRole = 'cliente' | 'empresa' | 'admin';
 
 export type OperacionStatus =
