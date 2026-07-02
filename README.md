@@ -303,16 +303,4 @@ Dos grupos de subcategorías. Se almacenan como `varchar(50)` en DB (no enum):
 ```bash
 stripe listen --forward-to localhost:3001/webhook
 # Test card: 4242 4242 4242 4242 | any future date | any CVC
-```
-
-## Próximos pasos
-
-- [ ] Chat room auto-creation en `POST /operaciones` (actualmente es un TODO)
-- [ ] Pago de múltiples items del carrito en una sola sesión Stripe (requiere backend multi-item; hoy es secuencial)
-- [ ] Rate limiting en endpoints sensibles (pagos, login)
-- [ ] Tests: auth flow, checkout session, webhook `checkout.session.completed`, transiciones de estado, flujo compras
-- [ ] Notificaciones push / mensajes de chat (Firebase Cloud Functions)
-- [ ] Panel de administración (gestión de usuarios, operaciones, reportes)
-- [ ] Panel de administración para gestionar `reembolso_en_revision` (actualmente se notifica por email a `openmarket.tfg@gmail.com`)
-- [ ] Cuadro de mandos para compradores (historial de gastos)
-- [ ] Filtros avanzados en cuadro de mandos (por operación individual, por comprador)
+``

@@ -34,7 +34,11 @@ import { ComprasModule } from './compras/compras.module';
         username: config.get<string>('DB_USER'),
         password: config.get<string>('DB_PASSWORD'),
         database: config.get<string>('DB_NAME'),
+<<<<<<< HEAD
         entities: [__dirname.replace(/\\/g, '/') + '/**/*.entity{.ts,.js}'],                                            
+=======
+        entities: [__dirname.replace(/\\/g, '/') + '/**/*.entity{.ts,.js}'],
+>>>>>>> f346e8bb8634b7a5f25e008ef7d28bd2f6c7fdf3
         migrations: [__dirname.replace(/\\/g, '/') + '/database/migrations/*{.ts,.js}'],
         synchronize: false,   // Nunca true — BD ya existe con su DDL
         logging: config.get<string>('NODE_ENV') === 'development',
